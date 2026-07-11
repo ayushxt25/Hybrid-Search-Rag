@@ -1,5 +1,5 @@
 import math
-from typing import Sequence
+from collections.abc import Sequence
 
 
 def dot_product(vector_a: Sequence[float], vector_b: Sequence[float]) -> float:
@@ -7,7 +7,7 @@ def dot_product(vector_a: Sequence[float], vector_b: Sequence[float]) -> float:
     if len(vector_a) != len(vector_b):
         raise ValueError("Vectors must have the same number of dimensions.")
 
-    return sum(a * b for a, b in zip(vector_a, vector_b))
+    return sum(a * b for a, b in zip(vector_a, vector_b, strict=True))
 
 
 def magnitude(vector: Sequence[float]) -> float:

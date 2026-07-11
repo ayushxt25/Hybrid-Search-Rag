@@ -37,21 +37,15 @@ class BM25:
         self.k1 = k1
         self.b = b
 
-        self.tokenized_documents = [
-            tokenize(document.text) for document in documents
-        ]
+        self.tokenized_documents = [tokenize(document.text) for document in documents]
 
-        self.document_lengths = [
-            len(tokens) for tokens in self.tokenized_documents
-        ]
+        self.document_lengths = [len(tokens) for tokens in self.tokenized_documents]
 
-        self.average_document_length = (
-            sum(self.document_lengths) / len(self.document_lengths)
+        self.average_document_length = sum(self.document_lengths) / len(
+            self.document_lengths
         )
 
-        self.term_frequencies = [
-            Counter(tokens) for tokens in self.tokenized_documents
-        ]
+        self.term_frequencies = [Counter(tokens) for tokens in self.tokenized_documents]
 
         self.document_frequencies = self._calculate_document_frequencies()
 
@@ -70,15 +64,8 @@ class BM25:
 
         return math.log(
             1
-            + (
-                total_documents
-                - documents_with_term
-                + 0.5
-            )
-            / (
-                documents_with_term
-                + 0.5
-            )
+            + (total_documents - documents_with_term + 0.5)
+            / (documents_with_term + 0.5)
         )
 
     def score_document(
@@ -97,25 +84,15 @@ class BM25:
             if frequency == 0:
                 continue
 
-            inverse_document_frequency = (
-                self._inverse_document_frequency(term)
-            )
+            inverse_document_frequency = self._inverse_document_frequency(term)
 
             numerator = frequency * (self.k1 + 1)
 
             denominator = frequency + self.k1 * (
-                1
-                - self.b
-                + self.b
-                * document_length
-                / self.average_document_length
+                1 - self.b + self.b * document_length / self.average_document_length
             )
 
-            score += (
-                inverse_document_frequency
-                * numerator
-                / denominator
-            )
+            score += inverse_document_frequency * numerator / denominator
 
         return score
 
@@ -161,37 +138,24 @@ def main() -> None:
         Document(
             document_id="authentication_error",
             text=(
-                "Error code ERR_AUTH_401 occurs when an expired "
-                "access token is used."
+                "Error code ERR_AUTH_401 occurs when an expired access token is used."
             ),
         ),
         Document(
             document_id="remote_work_policy",
-            text=(
-                "Employees may work remotely for up to "
-                "three days per week."
-            ),
+            text=("Employees may work remotely for up to three days per week."),
         ),
         Document(
             document_id="leave_policy",
-            text=(
-                "Employees receive eighteen paid leave days "
-                "every calendar year."
-            ),
+            text=("Employees receive eighteen paid leave days every calendar year."),
         ),
         Document(
             document_id="travel_policy",
-            text=(
-                "Hotel expenses are reimbursed up to the "
-                "approved daily limit."
-            ),
+            text=("Hotel expenses are reimbursed up to the approved daily limit."),
         ),
         Document(
             document_id="security_policy",
-            text=(
-                "All employees must enable multi-factor "
-                "authentication."
-            ),
+            text=("All employees must enable multi-factor authentication."),
         ),
     ]
 

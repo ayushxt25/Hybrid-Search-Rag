@@ -77,7 +77,11 @@ def main() -> None:
     )[0]
 
     ranked_results = sorted(
-        zip(documents, similarity_scores.tolist()),
+        zip(
+            documents,
+            similarity_scores.tolist(),
+            strict=True,
+        ),
         key=lambda result: result[1],
         reverse=True,
     )

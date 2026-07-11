@@ -67,15 +67,12 @@ def run_dense_search(
     )[0].tolist()
 
     ranked_results = sorted(
-        zip(documents, similarity_scores),
+        zip(documents, similarity_scores, strict=True),
         key=lambda result: result[1],
         reverse=True,
     )
 
-    return [
-        (document.document_id, score)
-        for document, score in ranked_results
-    ]
+    return [(document.document_id, score) for document, score in ranked_results]
 
 
 def run_sparse_search(
@@ -93,10 +90,7 @@ def run_sparse_search(
     search_engine = BM25(sparse_documents)
     ranked_results = search_engine.search(query)
 
-    return [
-        (document.document_id, score)
-        for document, score in ranked_results
-    ]
+    return [(document.document_id, score) for document, score in ranked_results]
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -129,45 +123,30 @@ def main() -> None:
         Document(
             document_id="authentication_error",
             text=(
-                "Error code ERR_AUTH_401 occurs when an expired "
-                "access token is used."
+                "Error code ERR_AUTH_401 occurs when an expired access token is used."
             ),
         ),
         Document(
             document_id="remote_work_policy",
-            text=(
-                "Employees may work remotely for up to "
-                "three days per week."
-            ),
+            text=("Employees may work remotely for up to three days per week."),
         ),
         Document(
             document_id="leave_policy",
-            text=(
-                "Employees receive eighteen paid leave days "
-                "every calendar year."
-            ),
+            text=("Employees receive eighteen paid leave days every calendar year."),
         ),
         Document(
             document_id="travel_policy",
-            text=(
-                "Hotel expenses are reimbursed up to the "
-                "approved daily limit."
-            ),
+            text=("Hotel expenses are reimbursed up to the approved daily limit."),
         ),
         Document(
             document_id="security_policy",
-            text=(
-                "All employees must enable multi-factor "
-                "authentication."
-            ),
+            text=("All employees must enable multi-factor authentication."),
         ),
     ]
 
     args = parse_arguments()
 
-    model = SentenceTransformer(
-        "sentence-transformers/all-MiniLM-L6-v2"
-    )
+    model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
     dense_results = run_dense_search(
         query=args.query,
@@ -180,13 +159,9 @@ def main() -> None:
         documents=documents,
     )
 
-    dense_ranking = [
-        document_id for document_id, _ in dense_results
-    ]
+    dense_ranking = [document_id for document_id, _ in dense_results]
 
-    sparse_ranking = [
-        document_id for document_id, _ in sparse_results
-    ]
+    sparse_ranking = [document_id for document_id, _ in sparse_results]
 
     hybrid_results = reciprocal_rank_fusion(
         rankings=[
