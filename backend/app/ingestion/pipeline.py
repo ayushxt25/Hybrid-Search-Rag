@@ -29,14 +29,22 @@ class DocumentIngestionPipeline:
         self.chunk_overlap = chunk_overlap
 
     def ingest(self, file_path: Path) -> IngestedDocument:
-        """Load a document and split its normalized content into chunks."""
+        """Load a document and split every source section into chunks."""
         document = self.loader.load(file_path)
 
-        chunks = chunk_text(
-            text=document.content,
-            chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap,
-        )
+        chunks = []
+
+        for section in document.sections:
+            section_chunks = chunk_text(
+                text=section.content,
+                chunk_size=self.chunk_size,
+                chunk_overlap=self.chunk_overlap,
+                section_index=section.section_index,
+                page_number=section.page_number,
+                heading=section.heading,
+                starting_chunk_index=len(chunks),
+            )
+            chunks.extend(section_chunks)
 
         if not chunks:
             raise RuntimeError("Document loading succeeded but produced no chunks.")

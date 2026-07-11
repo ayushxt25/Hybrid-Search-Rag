@@ -122,6 +122,9 @@ async def ingest_document(
         chunks=[
             DocumentChunkResponse(
                 chunk_index=chunk.chunk_index,
+                section_index=chunk.section_index,
+                page_number=chunk.page_number,
+                heading=chunk.heading,
                 text=chunk.text,
                 start_word=chunk.start_word,
                 end_word=chunk.end_word,

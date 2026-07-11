@@ -9,7 +9,7 @@ from app.ingestion.exceptions import (
 )
 from app.ingestion.loaders.base import DocumentLoader
 from app.ingestion.normalizer import normalize_text
-from app.schemas.document import LoadedDocument
+from app.schemas.document import DocumentSection, LoadedDocument
 
 
 class TextDocumentLoader(DocumentLoader):
@@ -64,4 +64,10 @@ class TextDocumentLoader(DocumentLoader):
             content=content,
             character_count=len(content),
             word_count=len(content.split()),
+            sections=[
+                DocumentSection(
+                    section_index=0,
+                    content=content,
+                )
+            ],
         )

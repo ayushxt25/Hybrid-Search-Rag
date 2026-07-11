@@ -31,6 +31,9 @@ def test_ingest_document_processes_valid_text_file() -> None:
     assert body["chunk_count"] == 1
     assert len(body["chunks"]) == 1
     assert body["chunks"][0]["chunk_index"] == 0
+    assert body["chunks"][0]["section_index"] == 0
+    assert body["chunks"][0]["page_number"] is None
+    assert body["chunks"][0]["heading"] is None
 
 
 def test_ingest_document_processes_markdown_file() -> None:

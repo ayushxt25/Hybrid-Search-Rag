@@ -22,6 +22,8 @@ def test_chunk_text_creates_overlapping_chunks() -> None:
     assert [chunk.start_word for chunk in chunks] == [0, 3, 6]
     assert [chunk.end_word for chunk in chunks] == [5, 8, 10]
     assert [chunk.word_count for chunk in chunks] == [5, 5, 4]
+    assert [chunk.section_index for chunk in chunks] == [0, 0, 0]
+    assert [chunk.page_number for chunk in chunks] == [None, None, None]
 
 
 def test_chunk_text_returns_one_chunk_for_short_text() -> None:
@@ -64,3 +66,20 @@ def test_chunk_text_rejects_invalid_configuration(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
         )
+
+
+def test_chunk_text_preserves_source_metadata() -> None:
+    chunks = chunk_text(
+        text="one two three four five six",
+        chunk_size=4,
+        chunk_overlap=1,
+        section_index=2,
+        page_number=3,
+        heading="Security Policy",
+        starting_chunk_index=5,
+    )
+
+    assert [chunk.chunk_index for chunk in chunks] == [5, 6]
+    assert all(chunk.section_index == 2 for chunk in chunks)
+    assert all(chunk.page_number == 3 for chunk in chunks)
+    assert all(chunk.heading == "Security Policy" for chunk in chunks)

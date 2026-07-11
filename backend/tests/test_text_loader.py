@@ -30,6 +30,10 @@ def test_text_loader_loads_and_normalizes_txt_file(
     assert document.content == ("Remote Work\n\nEmployees may work remotely.")
     assert document.character_count == len(document.content)
     assert document.word_count == 6
+    assert len(document.sections) == 1
+    assert document.sections[0].section_index == 0
+    assert document.sections[0].page_number is None
+    assert document.sections[0].content == document.content
 
 
 def test_text_loader_loads_markdown_file(

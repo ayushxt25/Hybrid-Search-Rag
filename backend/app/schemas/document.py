@@ -4,6 +4,15 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class DocumentSection(BaseModel):
+    """A logical source section extracted from a document."""
+
+    section_index: int = Field(ge=0)
+    content: str = Field(min_length=1)
+    page_number: int | None = Field(default=None, ge=1)
+    heading: str | None = None
+
+
 class LoadedDocument(BaseModel):
     """Text and metadata extracted from an uploaded document."""
 
@@ -13,12 +22,16 @@ class LoadedDocument(BaseModel):
     content: str = Field(min_length=1)
     character_count: int = Field(gt=0)
     word_count: int = Field(gt=0)
+    sections: list[DocumentSection] = Field(min_length=1)
 
 
 class TextChunk(BaseModel):
     """A searchable passage produced from an internal document."""
 
     chunk_index: int = Field(ge=0)
+    section_index: int = Field(ge=0)
+    page_number: int | None = Field(default=None, ge=1)
+    heading: str | None = None
     text: str = Field(min_length=1)
     start_word: int = Field(ge=0)
     end_word: int = Field(gt=0)
@@ -37,6 +50,9 @@ class DocumentChunkResponse(BaseModel):
     """Chunk information returned by the ingestion API."""
 
     chunk_index: int
+    section_index: int
+    page_number: int | None
+    heading: str | None
     text: str
     start_word: int
     end_word: int
