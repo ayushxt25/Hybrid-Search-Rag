@@ -13,9 +13,7 @@ def test_normalize_text_cleans_spacing_and_line_endings() -> None:
     result = normalize_text(raw_text)
 
     assert result == (
-        "Employee Handbook\n\n"
-        "Remote work is allowed.\n"
-        "Manager approval is required."
+        "Employee Handbook\n\nRemote work is allowed.\nManager approval is required."
     )
 
 
