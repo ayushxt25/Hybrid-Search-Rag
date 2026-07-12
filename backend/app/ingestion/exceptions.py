@@ -20,3 +20,15 @@ class EmptyDocumentError(DocumentLoadingError):
 
 class DocumentDecodingError(DocumentLoadingError):
     """Raised when document bytes cannot be decoded safely."""
+
+
+class CorruptedDocumentError(DocumentLoadingError):
+    """Raised when a document cannot be parsed safely."""
+
+
+class EncryptedDocumentError(DocumentLoadingError):
+    """Raised when a document requires a password."""
+
+
+class NoExtractableTextError(DocumentLoadingError):
+    """Raised when a document contains no machine-readable text."""

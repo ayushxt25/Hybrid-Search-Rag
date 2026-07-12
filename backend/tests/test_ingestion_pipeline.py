@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from reportlab.pdfgen import canvas
 
 from app.ingestion.pipeline import DocumentIngestionPipeline
 
@@ -73,3 +74,36 @@ def test_pipeline_rejects_invalid_chunk_configuration(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
         )
+
+
+def test_pipeline_preserves_pdf_page_numbers(
+    tmp_path: Path,
+) -> None:
+    document_path = tmp_path / "policies.pdf"
+
+    pdf = canvas.Canvas(str(document_path))
+    pdf.drawString(72, 720, "Remote work policy applies.")
+    pdf.showPage()
+    pdf.drawString(72, 720, "Paid leave policy applies.")
+    pdf.showPage()
+    pdf.save()
+
+    pipeline = DocumentIngestionPipeline(
+        chunk_size=20,
+        chunk_overlap=5,
+    )
+
+    result = pipeline.ingest(document_path)
+
+    assert result.document.file_extension == ".pdf"
+    assert result.chunk_count == 2
+
+    assert result.chunks[0].chunk_index == 0
+    assert result.chunks[0].section_index == 0
+    assert result.chunks[0].page_number == 1
+    assert result.chunks[0].text == "Remote work policy applies."
+
+    assert result.chunks[1].chunk_index == 1
+    assert result.chunks[1].section_index == 1
+    assert result.chunks[1].page_number == 2
+    assert result.chunks[1].text == "Paid leave policy applies."

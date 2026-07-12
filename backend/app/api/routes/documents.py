@@ -4,10 +4,13 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from app.ingestion.exceptions import (
+    CorruptedDocumentError,
     DocumentDecodingError,
     DocumentLoadingError,
     DocumentTooLargeError,
     EmptyDocumentError,
+    EncryptedDocumentError,
+    NoExtractableTextError,
     UnsupportedFileTypeError,
 )
 from app.ingestion.pipeline import DocumentIngestionPipeline
@@ -21,15 +24,15 @@ router = APIRouter(
     tags=["Documents"],
 )
 
-MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024
-SUPPORTED_EXTENSIONS = {".txt", ".md"}
+MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf"}
 
 
 @router.post(
     "/ingest",
     response_model=DocumentIngestionResponse,
     status_code=status.HTTP_200_OK,
-    summary="Process an internal text document",
+    summary="Process an internal document",
 )
 async def ingest_document(
     file: UploadFile,
@@ -37,8 +40,12 @@ async def ingest_document(
     """
     Validate, temporarily store, normalize and chunk an uploaded document.
 
-    The current implementation supports UTF-8 TXT and Markdown files.
-    It does not persist the uploaded document or generated chunks.
+    The current implementation supports:
+    - UTF-8 TXT files
+    - UTF-8 Markdown files
+    - text-based PDF files
+
+    Uploaded documents and generated chunks are not persisted yet.
     """
     if not file.filename:
         raise HTTPException(
@@ -51,7 +58,7 @@ async def ingest_document(
     if extension not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only .txt and .md files are currently supported.",
+            detail="Only .txt, .md and .pdf files are currently supported.",
         )
 
     contents = await file.read(MAX_UPLOAD_SIZE_BYTES + 1)
@@ -59,7 +66,7 @@ async def ingest_document(
     if len(contents) > MAX_UPLOAD_SIZE_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail="Uploaded document exceeds the 5 MiB size limit.",
+            detail="Uploaded document exceeds the 20 MiB size limit.",
         )
 
     if not contents:
@@ -94,7 +101,13 @@ async def ingest_document(
             detail=str(error),
         ) from error
 
-    except (EmptyDocumentError, DocumentDecodingError) as error:
+    except (
+        EmptyDocumentError,
+        DocumentDecodingError,
+        EncryptedDocumentError,
+        NoExtractableTextError,
+        CorruptedDocumentError,
+    ) as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(error),
