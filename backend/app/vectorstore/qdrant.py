@@ -1,3 +1,4 @@
+import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -5,7 +6,7 @@ from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.schemas.document import IngestedDocument, TextChunk
-from app.schemas.embedding import ChunkEmbedding
+from app.schemas.embedding import ChunkEmbedding, ChunkSparseEmbedding
 from app.schemas.search import DenseSearchResult
 from app.vectorstore.exceptions import (
     VectorStoreConfigurationError,
@@ -15,6 +16,7 @@ from app.vectorstore.exceptions import (
 from app.vectorstore.identifiers import generate_qdrant_point_id
 
 DENSE_VECTOR_NAME = "dense"
+SPARSE_VECTOR_NAME = "sparse"
 
 
 class QdrantVectorStore:
@@ -27,6 +29,7 @@ class QdrantVectorStore:
         vector_dimensions: int,
         url: str | None = None,
         client: QdrantClient | None = None,
+        sparse_enabled: bool = False,
     ) -> None:
         normalized_collection_name = collection_name.strip()
 
@@ -46,6 +49,7 @@ class QdrantVectorStore:
         self.collection_name = normalized_collection_name
         self.vector_dimensions = vector_dimensions
         self.client = client if client is not None else QdrantClient(url=url)
+        self.sparse_enabled = sparse_enabled
 
     def ensure_collection(self) -> None:
         """Create the configured collection when it does not exist."""
@@ -54,15 +58,22 @@ class QdrantVectorStore:
                 self._validate_existing_collection()
                 return
 
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config={
+            collection_config: dict[str, Any] = {
+                "collection_name": self.collection_name,
+                "vectors_config": {
                     DENSE_VECTOR_NAME: models.VectorParams(
                         size=self.vector_dimensions,
                         distance=models.Distance.COSINE,
                     )
                 },
-            )
+            }
+
+            if self.sparse_enabled:
+                collection_config["sparse_vectors_config"] = {
+                    SPARSE_VECTOR_NAME: models.SparseVectorParams(),
+                }
+
+            self.client.create_collection(**collection_config)
         except VectorStoreConfigurationError:
             raise
         except (
@@ -100,6 +111,19 @@ class QdrantVectorStore:
         if dense_config.distance != models.Distance.COSINE:
             raise VectorStoreConfigurationError(
                 "Qdrant dense vector must use cosine distance."
+            )
+
+        if not self.sparse_enabled:
+            return
+
+        sparse_vectors_config = collection.config.params.sparse_vectors
+
+        if (
+            not isinstance(sparse_vectors_config, dict)
+            or SPARSE_VECTOR_NAME not in sparse_vectors_config
+        ):
+            raise VectorStoreConfigurationError(
+                "Qdrant collection is missing the named sparse vector."
             )
 
     def upsert_document(
@@ -153,6 +177,73 @@ class QdrantVectorStore:
         ) as error:
             raise VectorStoreConnectionError(
                 "Unable to write document chunks to Qdrant."
+            ) from error
+
+        return len(points)
+
+    def upsert_hybrid_document(
+        self,
+        *,
+        ingested_document: IngestedDocument,
+        dense_embeddings: Sequence[ChunkEmbedding],
+        sparse_embeddings: Sequence[ChunkSparseEmbedding],
+    ) -> int:
+        """Insert or update dense and sparse vectors for every document chunk."""
+        self._require_sparse_enabled("Hybrid document upsert")
+
+        chunks = ingested_document.chunks
+
+        self._validate_hybrid_chunk_embeddings(
+            ingested_document=ingested_document,
+            chunks=chunks,
+            dense_embeddings=dense_embeddings,
+            sparse_embeddings=sparse_embeddings,
+        )
+
+        dense_embedding_by_chunk_id = {
+            embedding.chunk_id: embedding for embedding in dense_embeddings
+        }
+        sparse_embedding_by_chunk_id = {
+            embedding.chunk_id: embedding for embedding in sparse_embeddings
+        }
+
+        points: list[models.PointStruct] = []
+
+        for chunk in chunks:
+            dense_embedding = dense_embedding_by_chunk_id[chunk.chunk_id]
+            sparse_embedding = sparse_embedding_by_chunk_id[chunk.chunk_id]
+
+            points.append(
+                models.PointStruct(
+                    id=generate_qdrant_point_id(chunk.chunk_id),
+                    vector={
+                        DENSE_VECTOR_NAME: dense_embedding.vector,
+                        SPARSE_VECTOR_NAME: models.SparseVector(
+                            indices=sparse_embedding.indices,
+                            values=sparse_embedding.values,
+                        ),
+                    },
+                    payload=self._build_payload(
+                        ingested_document=ingested_document,
+                        chunk=chunk,
+                    ),
+                )
+            )
+
+        try:
+            self.client.upsert(
+                collection_name=self.collection_name,
+                points=points,
+                wait=True,
+            )
+        except (
+            UnexpectedResponse,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as error:
+            raise VectorStoreConnectionError(
+                "Unable to write hybrid document chunks to Qdrant."
             ) from error
 
         return len(points)
@@ -216,6 +307,54 @@ class QdrantVectorStore:
                     "Embedding vector length does not match its dimensions."
                 )
 
+    def _validate_hybrid_chunk_embeddings(
+        self,
+        *,
+        ingested_document: IngestedDocument,
+        chunks: Sequence[TextChunk],
+        dense_embeddings: Sequence[ChunkEmbedding],
+        sparse_embeddings: Sequence[ChunkSparseEmbedding],
+    ) -> None:
+        """Validate consistency between document chunks and hybrid embeddings."""
+        self._validate_chunk_embeddings(
+            ingested_document=ingested_document,
+            chunks=chunks,
+            embeddings=dense_embeddings,
+        )
+
+        if len(chunks) != len(sparse_embeddings):
+            raise VectorStoreDataError(
+                "Chunk, dense embedding, and sparse embedding counts must match."
+            )
+
+        chunk_ids = {chunk.chunk_id for chunk in chunks}
+        sparse_embedding_chunk_ids = {
+            embedding.chunk_id for embedding in sparse_embeddings
+        }
+
+        if len(sparse_embedding_chunk_ids) != len(sparse_embeddings):
+            raise VectorStoreDataError(
+                "Sparse embeddings contain duplicate chunk identifiers."
+            )
+
+        if chunk_ids != sparse_embedding_chunk_ids:
+            raise VectorStoreDataError(
+                "Sparse embeddings do not correspond to the supplied chunks."
+            )
+
+        expected_document_id = ingested_document.document.document_id
+
+        for embedding in sparse_embeddings:
+            if embedding.document_id != expected_document_id:
+                raise VectorStoreDataError(
+                    "All chunks and embeddings must belong to one document."
+                )
+
+            self._validate_sparse_vector(
+                indices=embedding.indices,
+                values=embedding.values,
+            )
+
     @staticmethod
     def _build_payload(
         *,
@@ -268,6 +407,52 @@ class QdrantVectorStore:
                 query_filter=query_filter,
                 limit=limit,
                 score_threshold=score_threshold,
+                with_payload=True,
+                with_vectors=False,
+            )
+        except (
+            UnexpectedResponse,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as error:
+            raise VectorStoreConnectionError(
+                "Unable to search the Qdrant collection."
+            ) from error
+
+        return [self._convert_search_result(point) for point in response.points]
+
+    def search_sparse(
+        self,
+        *,
+        query_indices: Sequence[int],
+        query_values: Sequence[float],
+        limit: int = 5,
+        document_id: str | None = None,
+    ) -> list[DenseSearchResult]:
+        """Return chunks nearest to a sparse lexical query vector."""
+        self._require_sparse_enabled("Sparse search")
+
+        self._validate_sparse_vector(
+            indices=query_indices,
+            values=query_values,
+        )
+
+        if limit <= 0:
+            raise ValueError("limit must be greater than zero.")
+
+        query_filter = self._build_document_filter(document_id)
+
+        try:
+            response = self.client.query_points(
+                collection_name=self.collection_name,
+                query=models.SparseVector(
+                    indices=list(query_indices),
+                    values=list(query_values),
+                ),
+                using=SPARSE_VECTOR_NAME,
+                query_filter=query_filter,
+                limit=limit,
                 with_payload=True,
                 with_vectors=False,
             )
@@ -343,6 +528,45 @@ class QdrantVectorStore:
                 )
             ]
         )
+
+    def _require_sparse_enabled(
+        self,
+        operation_name: str,
+    ) -> None:
+        if not self.sparse_enabled:
+            raise VectorStoreConfigurationError(
+                f"{operation_name} requires sparse_enabled=True."
+            )
+
+    @staticmethod
+    def _validate_sparse_vector(
+        *,
+        indices: Sequence[int],
+        values: Sequence[float],
+    ) -> None:
+        if len(indices) != len(values):
+            raise VectorStoreDataError(
+                "Sparse vector indices and values must have equal lengths."
+            )
+
+        if not indices:
+            raise VectorStoreDataError("Sparse vectors cannot be empty.")
+
+        if any(index < 0 for index in indices):
+            raise VectorStoreDataError("Sparse vector indices must be non-negative.")
+
+        if len(set(indices)) != len(indices):
+            raise VectorStoreDataError("Sparse vector indices must be unique.")
+
+        if list(indices) != sorted(indices):
+            raise VectorStoreDataError(
+                "Sparse vector indices must be sorted in ascending order."
+            )
+
+        if any(not math.isfinite(value) for value in values):
+            raise VectorStoreDataError(
+                "Sparse vector values must contain only finite numbers."
+            )
 
     def _convert_search_result(
         self,

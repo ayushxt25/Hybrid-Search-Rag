@@ -1,17 +1,25 @@
+import math
 from pathlib import Path
 
 import pytest
-from qdrant_client import QdrantClient
+from qdrant_client import QdrantClient, models
 
 from app.embeddings.sentence_transformer import (
     SentenceTransformerEmbeddingProvider,
 )
 from app.ingestion.pipeline import DocumentIngestionPipeline
+from app.schemas.embedding import ChunkEmbedding, ChunkSparseEmbedding
+from app.sparse.hashed_lexical import HashedLexicalSparseProvider
 from app.vectorstore.exceptions import (
     VectorStoreConfigurationError,
     VectorStoreDataError,
 )
-from app.vectorstore.qdrant import QdrantVectorStore
+from app.vectorstore.identifiers import generate_qdrant_point_id
+from app.vectorstore.qdrant import (
+    DENSE_VECTOR_NAME,
+    SPARSE_VECTOR_NAME,
+    QdrantVectorStore,
+)
 
 
 @pytest.fixture(scope="module")
@@ -27,6 +35,21 @@ def vector_store() -> QdrantVectorStore:
         client=client,
         collection_name="test_document_chunks",
         vector_dimensions=384,
+    )
+    store.ensure_collection()
+
+    return store
+
+
+@pytest.fixture
+def sparse_vector_store() -> QdrantVectorStore:
+    client = QdrantClient(":memory:")
+
+    store = QdrantVectorStore(
+        client=client,
+        collection_name="test_hybrid_document_chunks",
+        vector_dimensions=4,
+        sparse_enabled=True,
     )
     store.ensure_collection()
 
@@ -53,11 +76,86 @@ def create_ingested_document(
     return pipeline.ingest(document_path)
 
 
+def create_dense_embeddings(
+    document,
+    *,
+    dimensions: int = 4,
+) -> list[ChunkEmbedding]:
+    embeddings: list[ChunkEmbedding] = []
+
+    for chunk in document.chunks:
+        vector = [0.0] * dimensions
+        vector[chunk.chunk_index % dimensions] = 1.0
+        embeddings.append(
+            ChunkEmbedding(
+                chunk_id=chunk.chunk_id,
+                document_id=chunk.document_id,
+                vector=vector,
+                dimensions=dimensions,
+            )
+        )
+
+    return embeddings
+
+
+def create_sparse_embeddings(document) -> list[ChunkSparseEmbedding]:
+    return HashedLexicalSparseProvider().embed_chunks(document.chunks)
+
+
 def test_ensure_collection_is_idempotent(
     vector_store: QdrantVectorStore,
 ) -> None:
     vector_store.ensure_collection()
     vector_store.ensure_collection()
+
+
+def test_sparse_enabled_collection_contains_dense_and_sparse_configs() -> None:
+    client = QdrantClient(":memory:")
+    store = QdrantVectorStore(
+        client=client,
+        collection_name="test_sparse_config",
+        vector_dimensions=4,
+        sparse_enabled=True,
+    )
+
+    store.ensure_collection()
+
+    collection = client.get_collection("test_sparse_config")
+
+    assert DENSE_VECTOR_NAME in collection.config.params.vectors
+    assert SPARSE_VECTOR_NAME in collection.config.params.sparse_vectors
+
+
+def test_sparse_ensure_collection_is_idempotent(
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    sparse_vector_store.ensure_collection()
+    sparse_vector_store.ensure_collection()
+
+
+def test_sparse_validation_rejects_existing_dense_only_collection() -> None:
+    client = QdrantClient(":memory:")
+    client.create_collection(
+        collection_name="test_dense_only",
+        vectors_config={
+            DENSE_VECTOR_NAME: models.VectorParams(
+                size=4,
+                distance=models.Distance.COSINE,
+            )
+        },
+    )
+    store = QdrantVectorStore(
+        client=client,
+        collection_name="test_dense_only",
+        vector_dimensions=4,
+        sparse_enabled=True,
+    )
+
+    with pytest.raises(
+        VectorStoreConfigurationError,
+        match="missing the named sparse vector",
+    ):
+        store.ensure_collection()
 
 
 def test_upsert_and_search_dense_vectors(
@@ -115,6 +213,141 @@ def test_upsert_is_idempotent(
     assert len(results) == document.chunk_count
 
 
+def test_hybrid_upsert_stores_both_vectors(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(tmp_path)
+    dense_embeddings = create_dense_embeddings(document)
+    sparse_embeddings = create_sparse_embeddings(document)
+
+    written_count = sparse_vector_store.upsert_hybrid_document(
+        ingested_document=document,
+        dense_embeddings=dense_embeddings,
+        sparse_embeddings=sparse_embeddings,
+    )
+
+    point = sparse_vector_store.client.retrieve(
+        collection_name=sparse_vector_store.collection_name,
+        ids=[generate_qdrant_point_id(document.chunks[0].chunk_id)],
+        with_vectors=True,
+    )[0]
+
+    assert written_count == document.chunk_count
+    assert point.vector[DENSE_VECTOR_NAME] == dense_embeddings[0].vector
+    assert point.vector[SPARSE_VECTOR_NAME].indices == sparse_embeddings[0].indices
+    assert point.vector[SPARSE_VECTOR_NAME].values == sparse_embeddings[0].values
+
+
+def test_hybrid_upsert_is_idempotent(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(tmp_path)
+    dense_embeddings = create_dense_embeddings(document)
+    sparse_embeddings = create_sparse_embeddings(document)
+
+    sparse_vector_store.upsert_hybrid_document(
+        ingested_document=document,
+        dense_embeddings=dense_embeddings,
+        sparse_embeddings=sparse_embeddings,
+    )
+    sparse_vector_store.upsert_hybrid_document(
+        ingested_document=document,
+        dense_embeddings=dense_embeddings,
+        sparse_embeddings=sparse_embeddings,
+    )
+
+    results = sparse_vector_store.search_sparse(
+        query_indices=sparse_embeddings[0].indices,
+        query_values=sparse_embeddings[0].values,
+        limit=20,
+        document_id=document.document.document_id,
+    )
+
+    assert len(results) == document.chunk_count
+
+
+def test_hybrid_upsert_rejects_count_mismatch(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(tmp_path)
+
+    with pytest.raises(
+        VectorStoreDataError,
+        match="counts must match",
+    ):
+        sparse_vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=create_dense_embeddings(document),
+            sparse_embeddings=create_sparse_embeddings(document)[:-1],
+        )
+
+
+def test_hybrid_upsert_rejects_dense_chunk_id_mismatch(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(tmp_path)
+    dense_embeddings = create_dense_embeddings(document)
+    dense_embeddings[0] = dense_embeddings[0].model_copy(
+        update={"chunk_id": "a" * 64},
+    )
+
+    with pytest.raises(
+        VectorStoreDataError,
+        match="Embeddings do not correspond",
+    ):
+        sparse_vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=dense_embeddings,
+            sparse_embeddings=create_sparse_embeddings(document),
+        )
+
+
+def test_hybrid_upsert_rejects_sparse_chunk_id_mismatch(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(tmp_path)
+    sparse_embeddings = create_sparse_embeddings(document)
+    sparse_embeddings[0] = sparse_embeddings[0].model_copy(
+        update={"chunk_id": "a" * 64},
+    )
+
+    with pytest.raises(
+        VectorStoreDataError,
+        match="Sparse embeddings do not correspond",
+    ):
+        sparse_vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=create_dense_embeddings(document),
+            sparse_embeddings=sparse_embeddings,
+        )
+
+
+def test_hybrid_upsert_rejects_document_id_mismatch(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(tmp_path)
+    sparse_embeddings = create_sparse_embeddings(document)
+    sparse_embeddings[0] = sparse_embeddings[0].model_copy(
+        update={"document_id": "a" * 64},
+    )
+
+    with pytest.raises(
+        VectorStoreDataError,
+        match="must belong to one document",
+    ):
+        sparse_vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=create_dense_embeddings(document),
+            sparse_embeddings=sparse_embeddings,
+        )
+
+
 def test_search_can_filter_by_document_id(
     tmp_path: Path,
     vector_store: QdrantVectorStore,
@@ -141,6 +374,72 @@ def test_search_can_filter_by_document_id(
 
     results = vector_store.search_dense(
         query_vector=query_embedding.vector,
+        limit=5,
+        document_id=travel_document.document.document_id,
+    )
+
+    assert results
+    assert all(
+        result.document_id == travel_document.document.document_id for result in results
+    )
+
+
+def test_sparse_search_retrieves_lexical_match(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(
+        tmp_path,
+        content="Remote device policy allows employees to work from home.",
+    )
+    sparse_provider = HashedLexicalSparseProvider()
+    query_embedding = sparse_provider.embed_query("remote device")
+
+    sparse_vector_store.upsert_hybrid_document(
+        ingested_document=document,
+        dense_embeddings=create_dense_embeddings(document),
+        sparse_embeddings=sparse_provider.embed_chunks(document.chunks),
+    )
+
+    results = sparse_vector_store.search_sparse(
+        query_indices=query_embedding.indices,
+        query_values=query_embedding.values,
+        limit=3,
+    )
+
+    assert results
+    assert results[0].document_id == document.document.document_id
+    assert "Remote device policy" in results[0].text
+
+
+def test_sparse_search_supports_document_id_filtering(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    remote_document = create_ingested_document(
+        tmp_path,
+        file_name="remote.txt",
+        content="Remote device policy allows employees to work from home.",
+    )
+    travel_document = create_ingested_document(
+        tmp_path,
+        file_name="travel.txt",
+        content="Travel reimbursement policy covers hotels and meals.",
+    )
+    sparse_provider = HashedLexicalSparseProvider()
+
+    for document in (remote_document, travel_document):
+        sparse_vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=create_dense_embeddings(document),
+            sparse_embeddings=sparse_provider.embed_chunks(document.chunks),
+        )
+
+    query_embedding = sparse_provider.embed_query("policy")
+
+    results = sparse_vector_store.search_sparse(
+        query_indices=query_embedding.indices,
+        query_values=query_embedding.values,
         limit=5,
         document_id=travel_document.document.document_id,
     )
@@ -265,4 +564,76 @@ def test_search_rejects_blank_document_id(
         vector_store.search_dense(
             query_vector=[0.0] * 384,
             document_id=" ",
+        )
+
+
+def test_hybrid_upsert_rejects_sparse_disabled(
+    tmp_path: Path,
+    vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(tmp_path)
+
+    with pytest.raises(
+        VectorStoreConfigurationError,
+        match="requires sparse_enabled=True",
+    ):
+        vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=create_dense_embeddings(document, dimensions=384),
+            sparse_embeddings=create_sparse_embeddings(document),
+        )
+
+
+def test_sparse_search_rejects_sparse_disabled(
+    vector_store: QdrantVectorStore,
+) -> None:
+    with pytest.raises(
+        VectorStoreConfigurationError,
+        match="requires sparse_enabled=True",
+    ):
+        vector_store.search_sparse(
+            query_indices=[1],
+            query_values=[1.0],
+        )
+
+
+@pytest.mark.parametrize(
+    ("indices", "values", "message"),
+    [
+        ([], [], "cannot be empty"),
+        ([1, 2], [1.0], "equal lengths"),
+        ([-1], [1.0], "non-negative"),
+        ([1, 1], [1.0, 2.0], "unique"),
+        ([2, 1], [1.0, 2.0], "sorted"),
+        ([1], [math.inf], "finite"),
+        ([1], [math.nan], "finite"),
+    ],
+)
+def test_sparse_search_rejects_invalid_vectors(
+    sparse_vector_store: QdrantVectorStore,
+    indices: list[int],
+    values: list[float],
+    message: str,
+) -> None:
+    with pytest.raises(
+        VectorStoreDataError,
+        match=message,
+    ):
+        sparse_vector_store.search_sparse(
+            query_indices=indices,
+            query_values=values,
+        )
+
+
+def test_sparse_search_rejects_invalid_limit(
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="limit must be greater than zero",
+    ):
+        sparse_vector_store.search_sparse(
+            query_indices=[1],
+            query_values=[1.0],
+            limit=0,
         )
