@@ -1,5 +1,6 @@
 from io import BytesIO
 
+from docx import Document
 from fastapi.testclient import TestClient
 from pypdf import PdfWriter
 from reportlab.pdfgen import canvas
@@ -70,7 +71,7 @@ def test_ingest_document_rejects_unsupported_file_type() -> None:
 
     assert response.status_code == 415
     assert response.json() == {
-        "detail": "Only .txt, .md and .pdf files are currently supported."
+        "detail": ("Only .txt, .md, .pdf and .docx files are currently supported.")
     }
 
 
@@ -188,3 +189,50 @@ def test_ingest_document_rejects_pdf_without_text() -> None:
     assert response.json() == {
         "detail": ("PDF contains no extractable text and may require OCR.")
     }
+
+
+def create_docx_bytes() -> bytes:
+    buffer = BytesIO()
+    document = Document()
+
+    document.add_heading("Remote Work", level=1)
+    document.add_paragraph("Employees may work remotely three days per week.")
+
+    document.add_heading("Paid Leave", level=1)
+    document.add_paragraph("Employees receive eighteen paid leave days.")
+
+    document.save(buffer)
+
+    return buffer.getvalue()
+
+
+def test_ingest_document_processes_docx_with_heading_metadata() -> None:
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={
+            "file": (
+                "employee_handbook.docx",
+                create_docx_bytes(),
+                (
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+            )
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["file_name"] == "employee_handbook.docx"
+    assert body["file_extension"] == ".docx"
+    assert body["chunk_count"] == 2
+
+    assert body["chunks"][0]["section_index"] == 0
+    assert body["chunks"][0]["page_number"] is None
+    assert body["chunks"][0]["heading"] == "Remote Work"
+
+    assert body["chunks"][1]["section_index"] == 1
+    assert body["chunks"][1]["page_number"] is None
+    assert body["chunks"][1]["heading"] == "Paid Leave"

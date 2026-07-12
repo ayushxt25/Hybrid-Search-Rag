@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from docx import Document
 from reportlab.pdfgen import canvas
 
 from app.ingestion.pipeline import DocumentIngestionPipeline
@@ -107,3 +108,33 @@ def test_pipeline_preserves_pdf_page_numbers(
     assert result.chunks[1].section_index == 1
     assert result.chunks[1].page_number == 2
     assert result.chunks[1].text == "Paid leave policy applies."
+
+
+def test_pipeline_preserves_docx_headings(
+    tmp_path: Path,
+) -> None:
+    document_path = tmp_path / "policies.docx"
+
+    source_document = Document()
+    source_document.add_heading("Remote Work", level=1)
+    source_document.add_paragraph("Employees may work remotely three days per week.")
+    source_document.add_heading("Paid Leave", level=1)
+    source_document.add_paragraph("Employees receive eighteen paid leave days.")
+    source_document.save(document_path)
+
+    pipeline = DocumentIngestionPipeline(
+        chunk_size=20,
+        chunk_overlap=5,
+    )
+
+    result = pipeline.ingest(document_path)
+
+    assert result.chunk_count == 2
+
+    assert result.chunks[0].section_index == 0
+    assert result.chunks[0].page_number is None
+    assert result.chunks[0].heading == "Remote Work"
+
+    assert result.chunks[1].section_index == 1
+    assert result.chunks[1].page_number is None
+    assert result.chunks[1].heading == "Paid Leave"

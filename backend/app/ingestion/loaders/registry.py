@@ -2,6 +2,7 @@ from pathlib import Path
 
 from app.ingestion.exceptions import UnsupportedFileTypeError
 from app.ingestion.loaders.base import DocumentLoader
+from app.ingestion.loaders.docx import DOCXDocumentLoader
 from app.ingestion.loaders.pdf import PDFDocumentLoader
 from app.ingestion.loaders.text import TextDocumentLoader
 
@@ -16,6 +17,7 @@ class DocumentLoaderRegistry:
         configured_loaders = loaders or [
             TextDocumentLoader(),
             PDFDocumentLoader(),
+            DOCXDocumentLoader(),
         ]
 
         self._loaders: dict[str, DocumentLoader] = {}

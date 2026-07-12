@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from app.ingestion.exceptions import UnsupportedFileTypeError
+from app.ingestion.loaders.docx import DOCXDocumentLoader
 from app.ingestion.loaders.pdf import PDFDocumentLoader
 from app.ingestion.loaders.registry import DocumentLoaderRegistry
 from app.ingestion.loaders.text import TextDocumentLoader
@@ -15,6 +16,8 @@ from app.ingestion.loaders.text import TextDocumentLoader
         ("guide.md", TextDocumentLoader),
         ("handbook.pdf", PDFDocumentLoader),
         ("HANDBOOK.PDF", PDFDocumentLoader),
+        ("handbook.docx", DOCXDocumentLoader),
+        ("HANDBOOK.DOCX", DOCXDocumentLoader),
     ],
 )
 def test_registry_resolves_loader_by_extension(

@@ -25,7 +25,7 @@ router = APIRouter(
 )
 
 MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
-SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf"}
+SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
 
 
 @router.post(
@@ -38,14 +38,15 @@ async def ingest_document(
     file: UploadFile,
 ) -> DocumentIngestionResponse:
     """
-    Validate, temporarily store, normalize and chunk an uploaded document.
+        Validate, temporarily store, normalize and chunk an uploaded document.
 
-    The current implementation supports:
+        The current implementation supports:
     - UTF-8 TXT files
     - UTF-8 Markdown files
     - text-based PDF files
+    - Microsoft Word DOCX files
 
-    Uploaded documents and generated chunks are not persisted yet.
+        Uploaded documents and generated chunks are not persisted yet.
     """
     if not file.filename:
         raise HTTPException(
@@ -58,7 +59,7 @@ async def ingest_document(
     if extension not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Only .txt, .md and .pdf files are currently supported.",
+            detail=("Only .txt, .md, .pdf and .docx files are currently supported."),
         )
 
     contents = await file.read(MAX_UPLOAD_SIZE_BYTES + 1)
