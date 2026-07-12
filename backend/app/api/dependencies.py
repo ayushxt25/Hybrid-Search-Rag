@@ -5,6 +5,7 @@ from app.embeddings.sentence_transformer import (
     SentenceTransformerEmbeddingProvider,
 )
 from app.ingestion.pipeline import DocumentIngestionPipeline
+from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
 from app.vectorstore.qdrant import QdrantVectorStore
 
@@ -39,6 +40,29 @@ def get_document_indexing_service() -> DocumentIndexingService:
 
     return DocumentIndexingService(
         ingestion_pipeline=ingestion_pipeline,
+        embedding_provider=embedding_provider,
+        vector_store=vector_store,
+    )
+
+
+@lru_cache
+def get_dense_search_service() -> DenseSearchService:
+    """Return the shared dense-search service."""
+    settings = get_settings()
+    embedding_provider = get_embedding_provider()
+
+    if embedding_provider.dimensions != settings.dense_embedding_dimensions:
+        raise RuntimeError(
+            "Configured dense embedding dimensions do not match the embedding model."
+        )
+
+    vector_store = QdrantVectorStore(
+        url=settings.qdrant_url,
+        collection_name=settings.qdrant_collection_name,
+        vector_dimensions=settings.dense_embedding_dimensions,
+    )
+
+    return DenseSearchService(
         embedding_provider=embedding_provider,
         vector_store=vector_store,
     )
