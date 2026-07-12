@@ -16,6 +16,8 @@ class DocumentSection(BaseModel):
 class LoadedDocument(BaseModel):
     """Text and metadata extracted from an uploaded document."""
 
+    document_id: str = Field(min_length=64, max_length=64)
+    content_hash: str = Field(min_length=64, max_length=64)
     file_name: str = Field(min_length=1)
     file_extension: str = Field(min_length=1)
     source_path: Path
@@ -28,6 +30,8 @@ class LoadedDocument(BaseModel):
 class TextChunk(BaseModel):
     """A searchable passage produced from an internal document."""
 
+    chunk_id: str = Field(min_length=64, max_length=64)
+    document_id: str = Field(min_length=64, max_length=64)
     chunk_index: int = Field(ge=0)
     section_index: int = Field(ge=0)
     page_number: int | None = Field(default=None, ge=1)
@@ -49,6 +53,8 @@ class IngestedDocument(BaseModel):
 class DocumentChunkResponse(BaseModel):
     """Chunk information returned by the ingestion API."""
 
+    chunk_id: str
+    document_id: str
     chunk_index: int
     section_index: int
     page_number: int | None
@@ -63,6 +69,8 @@ class DocumentIngestionResponse(BaseModel):
     """Successful document-ingestion API response."""
 
     status: Literal["processed"]
+    document_id: str
+    content_hash: str
     file_name: str
     file_extension: str
     character_count: int

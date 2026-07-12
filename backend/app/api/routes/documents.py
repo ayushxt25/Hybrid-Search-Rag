@@ -128,6 +128,8 @@ async def ingest_document(
 
     return DocumentIngestionResponse(
         status="processed",
+        document_id=result.document.document_id,
+        content_hash=result.document.content_hash,
         file_name=file.filename,
         file_extension=result.document.file_extension,
         character_count=result.document.character_count,
@@ -135,6 +137,8 @@ async def ingest_document(
         chunk_count=result.chunk_count,
         chunks=[
             DocumentChunkResponse(
+                chunk_id=chunk.chunk_id,
+                document_id=chunk.document_id,
                 chunk_index=chunk.chunk_index,
                 section_index=chunk.section_index,
                 page_number=chunk.page_number,

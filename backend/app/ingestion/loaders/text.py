@@ -10,6 +10,7 @@ from app.ingestion.exceptions import (
 from app.ingestion.loaders.base import DocumentLoader
 from app.ingestion.normalizer import normalize_text
 from app.schemas.document import DocumentSection, LoadedDocument
+from app.ingestion.identifiers import generate_content_hash
 
 
 class TextDocumentLoader(DocumentLoader):
@@ -57,7 +58,11 @@ class TextDocumentLoader(DocumentLoader):
         if not content:
             raise EmptyDocumentError("Document contains no usable text.")
 
+        content_hash = generate_content_hash(content)
+
         return LoadedDocument(
+            document_id=content_hash,
+            content_hash=content_hash,
             file_name=resolved_path.name,
             file_extension=extension,
             source_path=resolved_path,

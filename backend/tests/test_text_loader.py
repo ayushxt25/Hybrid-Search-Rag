@@ -30,9 +30,14 @@ def test_text_loader_loads_and_normalizes_txt_file(
     assert document.content == ("Remote Work\n\nEmployees may work remotely.")
     assert document.character_count == len(document.content)
     assert document.word_count == 6
+
+    assert len(document.document_id) == 64
+    assert document.content_hash == document.document_id
+
     assert len(document.sections) == 1
     assert document.sections[0].section_index == 0
     assert document.sections[0].page_number is None
+    assert document.sections[0].heading is None
     assert document.sections[0].content == document.content
 
 
@@ -50,6 +55,34 @@ def test_text_loader_loads_markdown_file(
 
     assert document.file_extension == ".md"
     assert document.content.startswith("# Deployment Guide")
+    assert len(document.document_id) == 64
+    assert document.content_hash == document.document_id
+    assert len(document.sections) == 1
+
+
+def test_text_loader_generates_same_id_for_same_normalized_content(
+    tmp_path: Path,
+) -> None:
+    first_path = tmp_path / "first.txt"
+    second_path = tmp_path / "second.txt"
+
+    first_path.write_text(
+        "Remote   work is allowed.\n",
+        encoding="utf-8",
+    )
+    second_path.write_text(
+        "Remote work is allowed.",
+        encoding="utf-8",
+    )
+
+    loader = TextDocumentLoader()
+
+    first_document = loader.load(first_path)
+    second_document = loader.load(second_path)
+
+    assert first_document.content == second_document.content
+    assert first_document.document_id == second_document.document_id
+    assert first_document.content_hash == second_document.content_hash
 
 
 def test_text_loader_rejects_missing_file(

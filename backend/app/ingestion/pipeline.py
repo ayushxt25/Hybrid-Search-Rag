@@ -49,6 +49,7 @@ class DocumentIngestionPipeline:
                 page_number=section.page_number,
                 heading=section.heading,
                 starting_chunk_index=len(chunks),
+                document_id=document.document_id,
             )
             chunks.extend(section_chunks)
 

@@ -11,6 +11,7 @@ from app.ingestion.exceptions import (
     NoExtractableTextError,
     UnsupportedFileTypeError,
 )
+from app.ingestion.identifiers import generate_content_hash
 from app.ingestion.loaders.base import DocumentLoader
 from app.ingestion.normalizer import normalize_text
 from app.schemas.document import DocumentSection, LoadedDocument
@@ -71,16 +72,16 @@ class PDFDocumentLoader(DocumentLoader):
                     f"Unable to extract text from PDF page {page_index + 1}."
                 ) from error
 
-            content = normalize_text(extracted_text)
+            section_content = normalize_text(extracted_text)
 
-            if not content:
+            if not section_content:
                 continue
 
             sections.append(
                 DocumentSection(
                     section_index=len(sections),
                     page_number=page_index + 1,
-                    content=content,
+                    content=section_content,
                 )
             )
 
@@ -90,8 +91,11 @@ class PDFDocumentLoader(DocumentLoader):
             )
 
         content = "\n\n".join(section.content for section in sections)
+        content_hash = generate_content_hash(content)
 
         return LoadedDocument(
+            document_id=content_hash,
+            content_hash=content_hash,
             file_name=resolved_path.name,
             file_extension=extension,
             source_path=resolved_path,

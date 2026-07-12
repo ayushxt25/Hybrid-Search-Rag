@@ -236,3 +236,37 @@ def test_ingest_document_processes_docx_with_heading_metadata() -> None:
     assert body["chunks"][1]["section_index"] == 1
     assert body["chunks"][1]["page_number"] is None
     assert body["chunks"][1]["heading"] == "Paid Leave"
+
+
+def test_same_normalized_content_produces_same_document_id() -> None:
+    first_response = client.post(
+        "/api/v1/documents/ingest",
+        files={
+            "file": (
+                "first.txt",
+                b"Remote   work is allowed.\n",
+                "text/plain",
+            )
+        },
+    )
+
+    second_response = client.post(
+        "/api/v1/documents/ingest",
+        files={
+            "file": (
+                "second.txt",
+                b"Remote work is allowed.",
+                "text/plain",
+            )
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    first_body = first_response.json()
+    second_body = second_response.json()
+
+    assert first_body["document_id"] == second_body["document_id"]
+    assert first_body["content_hash"] == second_body["content_hash"]
+    assert first_body["chunks"][0]["chunk_id"] == second_body["chunks"][0]["chunk_id"]

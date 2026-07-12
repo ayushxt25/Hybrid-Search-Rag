@@ -11,6 +11,7 @@ from app.ingestion.exceptions import (
     EmptyDocumentError,
     UnsupportedFileTypeError,
 )
+from app.ingestion.identifiers import generate_content_hash
 from app.ingestion.loaders.base import DocumentLoader
 from app.ingestion.normalizer import normalize_text
 from app.schemas.document import DocumentSection, LoadedDocument
@@ -71,15 +72,15 @@ class DOCXDocumentLoader(DocumentLoader):
             if not current_paragraphs:
                 return
 
-            content = normalize_text("\n\n".join(current_paragraphs))
+            section_content = normalize_text("\n\n".join(current_paragraphs))
 
-            if not content:
+            if not section_content:
                 return
 
             sections.append(
                 DocumentSection(
                     section_index=len(sections),
-                    content=content,
+                    content=section_content,
                     page_number=None,
                     heading=current_heading,
                 )
@@ -126,8 +127,11 @@ class DOCXDocumentLoader(DocumentLoader):
                 combined_parts.append(section.content)
 
         content = "\n\n".join(combined_parts)
+        content_hash = generate_content_hash(content)
 
         return LoadedDocument(
+            document_id=content_hash,
+            content_hash=content_hash,
             file_name=resolved_path.name,
             file_extension=extension,
             source_path=resolved_path,

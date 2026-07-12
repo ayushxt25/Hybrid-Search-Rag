@@ -1,3 +1,4 @@
+from app.ingestion.identifiers import generate_chunk_id
 from app.schemas.document import TextChunk
 
 
@@ -6,6 +7,7 @@ def chunk_text(
     chunk_size: int = 200,
     chunk_overlap: int = 40,
     *,
+    document_id: str,
     section_index: int = 0,
     page_number: int | None = None,
     heading: str | None = None,
@@ -25,6 +27,9 @@ def chunk_text(
     if chunk_overlap >= chunk_size:
         raise ValueError("chunk_overlap must be smaller than chunk_size.")
 
+    if not document_id:
+        raise ValueError("document_id cannot be empty.")
+
     if section_index < 0:
         raise ValueError("section_index cannot be negative.")
 
@@ -43,14 +48,23 @@ def chunk_text(
     while start_word < len(words):
         end_word = min(start_word + chunk_size, len(words))
         chunk_words = words[start_word:end_word]
+        chunk_content = " ".join(chunk_words)
+        chunk_index = starting_chunk_index + len(chunks)
 
         chunks.append(
             TextChunk(
-                chunk_index=starting_chunk_index + len(chunks),
+                chunk_id=generate_chunk_id(
+                    document_id=document_id,
+                    section_index=section_index,
+                    chunk_index=chunk_index,
+                    text=chunk_content,
+                ),
+                document_id=document_id,
+                chunk_index=chunk_index,
                 section_index=section_index,
                 page_number=page_number,
                 heading=heading,
-                text=" ".join(chunk_words),
+                text=chunk_content,
                 start_word=start_word,
                 end_word=end_word,
                 word_count=len(chunk_words),
