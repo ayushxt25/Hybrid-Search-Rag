@@ -7,10 +7,10 @@ from app.ingestion.exceptions import (
     EmptyDocumentError,
     UnsupportedFileTypeError,
 )
+from app.ingestion.identifiers import generate_content_hash
 from app.ingestion.loaders.base import DocumentLoader
 from app.ingestion.normalizer import normalize_text
 from app.schemas.document import DocumentSection, LoadedDocument
-from app.ingestion.identifiers import generate_content_hash
 
 
 class TextDocumentLoader(DocumentLoader):

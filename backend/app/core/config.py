@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +11,10 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     environment: str = "development"
     api_v1_prefix: str = "/api/v1"
+
+    qdrant_url: str = "http://localhost:6333"
+    qdrant_collection_name: str = "internal_document_chunks"
+    dense_embedding_dimensions: int = Field(default=384, gt=0)
 
     model_config = SettingsConfigDict(
         env_file=".env",
