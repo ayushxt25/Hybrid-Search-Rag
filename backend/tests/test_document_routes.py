@@ -1,47 +1,120 @@
-from io import BytesIO
+from pathlib import Path
+from unittest.mock import Mock
 
-from docx import Document
+import pytest
 from fastapi.testclient import TestClient
-from pypdf import PdfWriter
-from reportlab.pdfgen import canvas
 
+from app.api.dependencies import get_document_indexing_service
+from app.ingestion.exceptions import (
+    CorruptedDocumentError,
+    DocumentDecodingError,
+    DocumentLoadingError,
+    DocumentTooLargeError,
+    EmptyDocumentError,
+    EncryptedDocumentError,
+    NoExtractableTextError,
+    UnsupportedFileTypeError,
+)
 from app.main import app
+from app.schemas.indexing import IndexedDocumentResult
+from app.vectorstore.exceptions import (
+    VectorStoreConfigurationError,
+    VectorStoreConnectionError,
+    VectorStoreDataError,
+)
 
 client = TestClient(app)
 
+DOCUMENT_ID = "a" * 64
+CONTENT_HASH = "b" * 64
 
-def test_ingest_document_processes_valid_text_file() -> None:
+
+@pytest.fixture(autouse=True)
+def clear_dependency_overrides():
+    app.dependency_overrides.clear()
+
+    yield
+
+    app.dependency_overrides.clear()
+
+
+def override_indexing_service(
+    service: Mock,
+) -> None:
+    app.dependency_overrides[get_document_indexing_service] = lambda: service
+
+
+def create_success_result(
+    *,
+    file_name: str,
+    file_extension: str,
+    chunk_count: int = 2,
+) -> IndexedDocumentResult:
+    return IndexedDocumentResult(
+        document_id=DOCUMENT_ID,
+        content_hash=CONTENT_HASH,
+        file_name=file_name,
+        file_extension=file_extension,
+        chunk_count=chunk_count,
+        indexed_points=chunk_count,
+    )
+
+
+def test_ingest_document_indexes_valid_text_file() -> None:
+    service = Mock()
+
+    uploaded_contents = (
+        b"Remote Work Policy\n\nEmployees may work remotely for three days per week."
+    )
+
+    def index_document(
+        document_path: Path,
+    ) -> IndexedDocumentResult:
+        assert document_path.exists()
+        assert document_path.name == "remote_policy.txt"
+        assert document_path.read_bytes() == uploaded_contents
+
+        return create_success_result(
+            file_name="remote_policy.txt",
+            file_extension=".txt",
+        )
+
+    service.index_document.side_effect = index_document
+    override_indexing_service(service)
+
     response = client.post(
         "/api/v1/documents/ingest",
         files={
             "file": (
                 "remote_policy.txt",
-                (
-                    b"Remote Work Policy\n\n"
-                    b"Employees may work remotely for three days per week."
-                ),
+                uploaded_contents,
                 "text/plain",
             )
         },
     )
 
     assert response.status_code == 200
+    assert response.json() == {
+        "document_id": DOCUMENT_ID,
+        "content_hash": CONTENT_HASH,
+        "file_name": "remote_policy.txt",
+        "file_extension": ".txt",
+        "chunk_count": 2,
+        "indexed_points": 2,
+    }
 
-    body = response.json()
-
-    assert body["status"] == "processed"
-    assert body["file_name"] == "remote_policy.txt"
-    assert body["file_extension"] == ".txt"
-    assert body["word_count"] == 12
-    assert body["chunk_count"] == 1
-    assert len(body["chunks"]) == 1
-    assert body["chunks"][0]["chunk_index"] == 0
-    assert body["chunks"][0]["section_index"] == 0
-    assert body["chunks"][0]["page_number"] is None
-    assert body["chunks"][0]["heading"] is None
+    service.index_document.assert_called_once()
 
 
-def test_ingest_document_processes_markdown_file() -> None:
+def test_ingest_document_indexes_markdown_file() -> None:
+    service = Mock()
+    service.index_document.return_value = create_success_result(
+        file_name="guide.md",
+        file_extension=".md",
+        chunk_count=1,
+    )
+    override_indexing_service(service)
+
     response = client.post(
         "/api/v1/documents/ingest",
         files={
@@ -55,9 +128,78 @@ def test_ingest_document_processes_markdown_file() -> None:
 
     assert response.status_code == 200
     assert response.json()["file_extension"] == ".md"
+    assert response.json()["indexed_points"] == 1
+
+
+def test_ingest_document_preserves_pdf_filename() -> None:
+    service = Mock()
+
+    def index_document(
+        document_path: Path,
+    ) -> IndexedDocumentResult:
+        assert document_path.name == "employee_handbook.pdf"
+
+        return create_success_result(
+            file_name="employee_handbook.pdf",
+            file_extension=".pdf",
+        )
+
+    service.index_document.side_effect = index_document
+    override_indexing_service(service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={
+            "file": (
+                "employee_handbook.pdf",
+                b"%PDF-valid-test-content",
+                "application/pdf",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["file_name"] == ("employee_handbook.pdf")
+
+
+def test_ingest_document_preserves_docx_filename() -> None:
+    service = Mock()
+
+    def index_document(
+        document_path: Path,
+    ) -> IndexedDocumentResult:
+        assert document_path.name == "employee_handbook.docx"
+
+        return create_success_result(
+            file_name="employee_handbook.docx",
+            file_extension=".docx",
+        )
+
+    service.index_document.side_effect = index_document
+    override_indexing_service(service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={
+            "file": (
+                "employee_handbook.docx",
+                b"fake-docx-content",
+                (
+                    "application/vnd.openxmlformats-officedocument."
+                    "wordprocessingml.document"
+                ),
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["file_extension"] == ".docx"
 
 
 def test_ingest_document_rejects_unsupported_file_type() -> None:
+    service = Mock()
+    override_indexing_service(service)
+
     response = client.post(
         "/api/v1/documents/ingest",
         files={
@@ -74,8 +216,13 @@ def test_ingest_document_rejects_unsupported_file_type() -> None:
         "detail": ("Only .txt, .md, .pdf and .docx files are currently supported.")
     }
 
+    service.index_document.assert_not_called()
+
 
 def test_ingest_document_rejects_empty_file() -> None:
+    service = Mock()
+    override_indexing_service(service)
+
     response = client.post(
         "/api/v1/documents/ingest",
         files={
@@ -90,183 +237,258 @@ def test_ingest_document_rejects_empty_file() -> None:
     assert response.status_code == 422
     assert response.json() == {"detail": "Uploaded document is empty."}
 
-
-def test_ingest_document_rejects_non_utf8_file() -> None:
-    response = client.post(
-        "/api/v1/documents/ingest",
-        files={
-            "file": (
-                "invalid.txt",
-                b"\xff\xfe\xfa",
-                "text/plain",
-            )
-        },
-    )
-
-    assert response.status_code == 422
-    assert response.json() == {"detail": "Document must use UTF-8 encoding."}
+    service.index_document.assert_not_called()
 
 
 def test_ingest_document_requires_file() -> None:
+    service = Mock()
+    override_indexing_service(service)
+
     response = client.post("/api/v1/documents/ingest")
 
     assert response.status_code == 422
+    service.index_document.assert_not_called()
 
 
-def create_pdf_bytes() -> bytes:
-    buffer = BytesIO()
-    pdf = canvas.Canvas(buffer)
+def test_ingest_document_rejects_oversized_file() -> None:
+    service = Mock()
+    override_indexing_service(service)
 
-    pdf.drawString(
-        72,
-        720,
-        "Remote work is allowed for three days per week.",
-    )
-    pdf.showPage()
-
-    pdf.drawString(
-        72,
-        720,
-        "Employees receive eighteen paid leave days.",
-    )
-    pdf.showPage()
-
-    pdf.save()
-
-    return buffer.getvalue()
-
-
-def test_ingest_document_processes_pdf_with_page_metadata() -> None:
-    response = client.post(
-        "/api/v1/documents/ingest",
-        files={
-            "file": (
-                "employee_handbook.pdf",
-                create_pdf_bytes(),
-                "application/pdf",
-            )
-        },
-    )
-
-    assert response.status_code == 200
-
-    body = response.json()
-
-    assert body["status"] == "processed"
-    assert body["file_name"] == "employee_handbook.pdf"
-    assert body["file_extension"] == ".pdf"
-    assert body["chunk_count"] == 2
-
-    assert body["chunks"][0]["section_index"] == 0
-    assert body["chunks"][0]["page_number"] == 1
-    assert body["chunks"][0]["text"] == (
-        "Remote work is allowed for three days per week."
-    )
-
-    assert body["chunks"][1]["section_index"] == 1
-    assert body["chunks"][1]["page_number"] == 2
-    assert body["chunks"][1]["text"] == ("Employees receive eighteen paid leave days.")
-
-
-def test_ingest_document_rejects_pdf_without_text() -> None:
-    buffer = BytesIO()
-    writer = PdfWriter()
-    writer.add_blank_page(width=612, height=792)
-    writer.write(buffer)
+    oversized_contents = b"x" * (20 * 1024 * 1024 + 1)
 
     response = client.post(
         "/api/v1/documents/ingest",
         files={
             "file": (
-                "scanned.pdf",
-                buffer.getvalue(),
-                "application/pdf",
+                "large.txt",
+                oversized_contents,
+                "text/plain",
             )
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 413
     assert response.json() == {
-        "detail": ("PDF contains no extractable text and may require OCR.")
+        "detail": ("Uploaded document exceeds the 20 MiB size limit.")
+    }
+
+    service.index_document.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    (
+        "raised_error",
+        "expected_status",
+        "expected_detail",
+    ),
+    [
+        (
+            UnsupportedFileTypeError("Unsupported document type."),
+            415,
+            "Unsupported document type.",
+        ),
+        (
+            DocumentTooLargeError("Document exceeds loader size limit."),
+            413,
+            "Document exceeds loader size limit.",
+        ),
+        (
+            EmptyDocumentError("Document contains no content."),
+            422,
+            "Document contains no content.",
+        ),
+        (
+            DocumentDecodingError("Document must use UTF-8 encoding."),
+            422,
+            "Document must use UTF-8 encoding.",
+        ),
+        (
+            EncryptedDocumentError("Encrypted PDFs are not supported."),
+            422,
+            "Encrypted PDFs are not supported.",
+        ),
+        (
+            NoExtractableTextError("PDF contains no extractable text."),
+            422,
+            "PDF contains no extractable text.",
+        ),
+        (
+            CorruptedDocumentError("Document is corrupted."),
+            422,
+            "Document is corrupted.",
+        ),
+        (
+            DocumentLoadingError("Unable to load document."),
+            400,
+            "Unable to load document.",
+        ),
+    ],
+)
+def test_ingest_document_maps_ingestion_errors(
+    raised_error: Exception,
+    expected_status: int,
+    expected_detail: str,
+) -> None:
+    service = Mock()
+    service.index_document.side_effect = raised_error
+    override_indexing_service(service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={
+            "file": (
+                "policy.txt",
+                b"Valid uploaded contents.",
+                "text/plain",
+            )
+        },
+    )
+
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": expected_detail}
+
+
+def test_ingest_document_maps_vector_connection_error() -> None:
+    service = Mock()
+    service.index_document.side_effect = VectorStoreConnectionError(
+        "Qdrant is unavailable."
+    )
+    override_indexing_service(service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={
+            "file": (
+                "policy.txt",
+                b"Valid uploaded contents.",
+                "text/plain",
+            )
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": ("The vector database is currently unavailable.")
     }
 
 
-def create_docx_bytes() -> bytes:
-    buffer = BytesIO()
-    document = Document()
+@pytest.mark.parametrize(
+    "raised_error",
+    [
+        VectorStoreConfigurationError("Invalid collection configuration."),
+        VectorStoreDataError("Invalid vector-store payload."),
+    ],
+)
+def test_ingest_document_maps_vector_store_errors(
+    raised_error: Exception,
+) -> None:
+    service = Mock()
+    service.index_document.side_effect = raised_error
+    override_indexing_service(service)
 
-    document.add_heading("Remote Work", level=1)
-    document.add_paragraph("Employees may work remotely three days per week.")
-
-    document.add_heading("Paid Leave", level=1)
-    document.add_paragraph("Employees receive eighteen paid leave days.")
-
-    document.save(buffer)
-
-    return buffer.getvalue()
-
-
-def test_ingest_document_processes_docx_with_heading_metadata() -> None:
     response = client.post(
         "/api/v1/documents/ingest",
         files={
             "file": (
-                "employee_handbook.docx",
-                create_docx_bytes(),
-                (
-                    "application/vnd.openxmlformats-officedocument."
-                    "wordprocessingml.document"
-                ),
+                "policy.txt",
+                b"Valid uploaded contents.",
+                "text/plain",
+            )
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": ("Document indexing failed due to a vector-store error.")
+    }
+
+
+def test_ingest_document_maps_runtime_error() -> None:
+    service = Mock()
+    service.index_document.side_effect = RuntimeError("Indexed point count mismatch.")
+    override_indexing_service(service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={
+            "file": (
+                "policy.txt",
+                b"Valid uploaded contents.",
+                "text/plain",
+            )
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": ("Document indexing did not complete successfully.")
+    }
+
+
+def test_temporary_file_is_removed_after_success() -> None:
+    service = Mock()
+    captured_path: Path | None = None
+
+    def index_document(
+        document_path: Path,
+    ) -> IndexedDocumentResult:
+        nonlocal captured_path
+
+        captured_path = document_path
+        assert document_path.exists()
+
+        return create_success_result(
+            file_name="policy.txt",
+            file_extension=".txt",
+        )
+
+    service.index_document.side_effect = index_document
+    override_indexing_service(service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={
+            "file": (
+                "policy.txt",
+                b"Valid uploaded contents.",
+                "text/plain",
             )
         },
     )
 
     assert response.status_code == 200
-
-    body = response.json()
-
-    assert body["file_name"] == "employee_handbook.docx"
-    assert body["file_extension"] == ".docx"
-    assert body["chunk_count"] == 2
-
-    assert body["chunks"][0]["section_index"] == 0
-    assert body["chunks"][0]["page_number"] is None
-    assert body["chunks"][0]["heading"] == "Remote Work"
-
-    assert body["chunks"][1]["section_index"] == 1
-    assert body["chunks"][1]["page_number"] is None
-    assert body["chunks"][1]["heading"] == "Paid Leave"
+    assert captured_path is not None
+    assert not captured_path.exists()
 
 
-def test_same_normalized_content_produces_same_document_id() -> None:
-    first_response = client.post(
+def test_temporary_file_is_removed_after_failure() -> None:
+    service = Mock()
+    captured_path: Path | None = None
+
+    def index_document(
+        document_path: Path,
+    ) -> IndexedDocumentResult:
+        nonlocal captured_path
+
+        captured_path = document_path
+        assert document_path.exists()
+
+        raise DocumentLoadingError("Unable to load document.")
+
+    service.index_document.side_effect = index_document
+    override_indexing_service(service)
+
+    response = client.post(
         "/api/v1/documents/ingest",
         files={
             "file": (
-                "first.txt",
-                b"Remote   work is allowed.\n",
+                "policy.txt",
+                b"Valid uploaded contents.",
                 "text/plain",
             )
         },
     )
 
-    second_response = client.post(
-        "/api/v1/documents/ingest",
-        files={
-            "file": (
-                "second.txt",
-                b"Remote work is allowed.",
-                "text/plain",
-            )
-        },
-    )
-
-    assert first_response.status_code == 200
-    assert second_response.status_code == 200
-
-    first_body = first_response.json()
-    second_body = second_response.json()
-
-    assert first_body["document_id"] == second_body["document_id"]
-    assert first_body["content_hash"] == second_body["content_hash"]
-    assert first_body["chunks"][0]["chunk_id"] == second_body["chunks"][0]["chunk_id"]
+    assert response.status_code == 400
+    assert captured_path is not None
+    assert not captured_path.exists()

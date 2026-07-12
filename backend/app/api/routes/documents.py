@@ -1,8 +1,11 @@
 import tempfile
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
+from app.api.dependencies import get_document_indexing_service
 from app.ingestion.exceptions import (
     CorruptedDocumentError,
     DocumentDecodingError,
@@ -13,10 +16,12 @@ from app.ingestion.exceptions import (
     NoExtractableTextError,
     UnsupportedFileTypeError,
 )
-from app.ingestion.pipeline import DocumentIngestionPipeline
-from app.schemas.document import (
-    DocumentChunkResponse,
-    DocumentIngestionResponse,
+from app.schemas.indexing import IndexedDocumentResult
+from app.services.document_indexing import DocumentIndexingService
+from app.vectorstore.exceptions import (
+    VectorStoreConfigurationError,
+    VectorStoreConnectionError,
+    VectorStoreDataError,
 )
 
 router = APIRouter(
@@ -30,23 +35,26 @@ SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
 
 @router.post(
     "/ingest",
-    response_model=DocumentIngestionResponse,
+    response_model=IndexedDocumentResult,
     status_code=status.HTTP_200_OK,
-    summary="Process an internal document",
+    summary="Ingest and index an internal document",
 )
 async def ingest_document(
     file: UploadFile,
-) -> DocumentIngestionResponse:
+    indexing_service: Annotated[
+        DocumentIndexingService,
+        Depends(get_document_indexing_service),
+    ],
+) -> IndexedDocumentResult:
     """
-        Validate, temporarily store, normalize and chunk an uploaded document.
+    Validate, temporarily store, process, embed and index a document.
 
-        The current implementation supports:
-    - UTF-8 TXT files
-    - UTF-8 Markdown files
-    - text-based PDF files
-    - Microsoft Word DOCX files
+    Supported formats:
 
-        Uploaded documents and generated chunks are not persisted yet.
+    - UTF-8 TXT
+    - UTF-8 Markdown
+    - Text-based PDF
+    - Microsoft Word DOCX
     """
     if not file.filename:
         raise HTTPException(
@@ -54,7 +62,8 @@ async def ingest_document(
             detail="Uploaded file must have a filename.",
         )
 
-    extension = Path(file.filename).suffix.lower()
+    original_file_name = Path(file.filename).name
+    extension = Path(original_file_name).suffix.lower()
 
     if extension not in SUPPORTED_EXTENSIONS:
         raise HTTPException(
@@ -76,19 +85,15 @@ async def ingest_document(
             detail="Uploaded document is empty.",
         )
 
-    temporary_path: Path | None = None
-
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb",
-            suffix=extension,
-            delete=False,
-        ) as temporary_file:
-            temporary_file.write(contents)
-            temporary_path = Path(temporary_file.name)
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            temporary_path = Path(temporary_directory) / original_file_name
+            temporary_path.write_bytes(contents)
 
-        pipeline = DocumentIngestionPipeline()
-        result = pipeline.ingest(temporary_path)
+            result = await run_in_threadpool(
+                indexing_service.index_document,
+                temporary_path,
+            )
 
     except UnsupportedFileTypeError as error:
         raise HTTPException(
@@ -120,34 +125,28 @@ async def ingest_document(
             detail=str(error),
         ) from error
 
+    except VectorStoreConnectionError as error:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The vector database is currently unavailable.",
+        ) from error
+
+    except (
+        VectorStoreConfigurationError,
+        VectorStoreDataError,
+    ) as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Document indexing failed due to a vector-store error.",
+        ) from error
+
+    except RuntimeError as error:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Document indexing did not complete successfully.",
+        ) from error
+
     finally:
         await file.close()
 
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
-
-    return DocumentIngestionResponse(
-        status="processed",
-        document_id=result.document.document_id,
-        content_hash=result.document.content_hash,
-        file_name=file.filename,
-        file_extension=result.document.file_extension,
-        character_count=result.document.character_count,
-        word_count=result.document.word_count,
-        chunk_count=result.chunk_count,
-        chunks=[
-            DocumentChunkResponse(
-                chunk_id=chunk.chunk_id,
-                document_id=chunk.document_id,
-                chunk_index=chunk.chunk_index,
-                section_index=chunk.section_index,
-                page_number=chunk.page_number,
-                heading=chunk.heading,
-                text=chunk.text,
-                start_word=chunk.start_word,
-                end_word=chunk.end_word,
-                word_count=chunk.word_count,
-            )
-            for chunk in result.chunks
-        ],
-    )
+    return result
