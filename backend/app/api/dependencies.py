@@ -7,6 +7,7 @@ from app.embeddings.sentence_transformer import (
 from app.ingestion.pipeline import DocumentIngestionPipeline
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
+from app.services.hybrid_search import HybridSearchService
 from app.services.sparse_search import SparseSearchService
 from app.sparse.hashed_lexical import HashedLexicalSparseProvider
 from app.vectorstore.qdrant import QdrantVectorStore
@@ -94,6 +95,27 @@ def get_sparse_search_service() -> SparseSearchService:
     )
 
     return SparseSearchService(
+        sparse_embedding_provider=sparse_embedding_provider,
+        vector_store=vector_store,
+    )
+
+
+@lru_cache
+def get_hybrid_search_service() -> HybridSearchService:
+    """Return the shared hybrid-search service."""
+    settings = get_settings()
+    embedding_provider = get_embedding_provider()
+    sparse_embedding_provider = get_sparse_embedding_provider()
+
+    vector_store = QdrantVectorStore(
+        url=settings.qdrant_url,
+        collection_name=settings.qdrant_hybrid_collection_name,
+        vector_dimensions=settings.dense_embedding_dimensions,
+        sparse_enabled=True,
+    )
+
+    return HybridSearchService(
+        embedding_provider=embedding_provider,
         sparse_embedding_provider=sparse_embedding_provider,
         vector_store=vector_store,
     )

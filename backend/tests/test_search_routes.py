@@ -3,7 +3,11 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_dense_search_service, get_sparse_search_service
+from app.api.dependencies import (
+    get_dense_search_service,
+    get_hybrid_search_service,
+    get_sparse_search_service,
+)
 from app.main import app
 from app.schemas.search import DenseSearchResult
 from app.schemas.search_request import DenseSearchResponse
@@ -34,6 +38,10 @@ def override_search_service(service: Mock) -> None:
 
 def override_sparse_search_service(service: Mock) -> None:
     app.dependency_overrides[get_sparse_search_service] = lambda: service
+
+
+def override_hybrid_search_service(service: Mock) -> None:
+    app.dependency_overrides[get_hybrid_search_service] = lambda: service
 
 
 def create_search_response() -> DenseSearchResponse:
@@ -331,4 +339,174 @@ def test_sparse_search_maps_runtime_error() -> None:
     assert response.status_code == 500
     assert response.json() == {
         "detail": ("Sparse search did not complete successfully.")
+    }
+
+
+def test_hybrid_search_returns_fused_results() -> None:
+    service = Mock()
+    service.search.return_value = create_search_response()
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "remote work policy",
+            "limit": 3,
+            "candidate_limit": 20,
+            "document_id": DOCUMENT_ID,
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["query"] == "remote work policy"
+    assert body["result_count"] == 1
+    assert body["results"][0]["chunk_id"] == CHUNK_ID
+    assert body["results"][0]["score"] == 0.91
+
+    service.search.assert_called_once()
+
+
+def test_hybrid_search_rejects_candidate_limit_smaller_than_limit() -> None:
+    service = Mock()
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "remote work",
+            "limit": 10,
+            "candidate_limit": 5,
+        },
+    )
+
+    assert response.status_code == 422
+    service.search.assert_not_called()
+
+
+def test_hybrid_search_rejects_empty_query() -> None:
+    service = Mock()
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "",
+        },
+    )
+
+    assert response.status_code == 422
+    service.search.assert_not_called()
+
+
+def test_hybrid_search_rejects_invalid_limit() -> None:
+    service = Mock()
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "remote work",
+            "limit": 0,
+        },
+    )
+
+    assert response.status_code == 422
+    service.search.assert_not_called()
+
+
+def test_hybrid_search_rejects_invalid_candidate_limit() -> None:
+    service = Mock()
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "remote work",
+            "candidate_limit": 0,
+        },
+    )
+
+    assert response.status_code == 422
+    service.search.assert_not_called()
+
+
+def test_hybrid_search_maps_value_error() -> None:
+    service = Mock()
+    service.search.side_effect = ValueError("query cannot be empty.")
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "remote work",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "query cannot be empty."}
+
+
+def test_hybrid_search_maps_connection_error() -> None:
+    service = Mock()
+    service.search.side_effect = VectorStoreConnectionError("Qdrant unavailable.")
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "remote work",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": ("The vector database is currently unavailable.")
+    }
+
+
+@pytest.mark.parametrize(
+    "raised_error",
+    [
+        VectorStoreConfigurationError("Invalid collection."),
+        VectorStoreDataError("Invalid stored payload."),
+    ],
+)
+def test_hybrid_search_maps_vector_store_errors(
+    raised_error: Exception,
+) -> None:
+    service = Mock()
+    service.search.side_effect = raised_error
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "remote work",
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": ("Hybrid search failed due to a vector-store error.")
+    }
+
+
+def test_hybrid_search_maps_runtime_error() -> None:
+    service = Mock()
+    service.search.side_effect = RuntimeError("Hybrid search failed.")
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "remote work",
+        },
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": ("Hybrid search did not complete successfully.")
     }

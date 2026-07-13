@@ -6,11 +6,13 @@ from app.api.dependencies import (
     get_dense_search_service,
     get_document_indexing_service,
     get_embedding_provider,
+    get_hybrid_search_service,
     get_sparse_embedding_provider,
     get_sparse_search_service,
 )
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
+from app.services.hybrid_search import HybridSearchService
 from app.services.sparse_search import SparseSearchService
 
 
@@ -21,6 +23,7 @@ def clear_dependency_caches():
     get_document_indexing_service.cache_clear()
     get_dense_search_service.cache_clear()
     get_sparse_search_service.cache_clear()
+    get_hybrid_search_service.cache_clear()
 
     yield
 
@@ -29,6 +32,7 @@ def clear_dependency_caches():
     get_document_indexing_service.cache_clear()
     get_dense_search_service.cache_clear()
     get_sparse_search_service.cache_clear()
+    get_hybrid_search_service.cache_clear()
 
 
 @patch("app.api.dependencies.SentenceTransformerEmbeddingProvider")
@@ -214,6 +218,47 @@ def test_sparse_search_service_is_created_and_cached(
 
     assert isinstance(first, SparseSearchService)
     assert second is first
+    assert first.sparse_embedding_provider is sparse_provider
+    assert first.vector_store is vector_store
+
+    vector_store_class.assert_called_once_with(
+        url="http://localhost:6333",
+        collection_name="test_hybrid_chunks",
+        vector_dimensions=384,
+        sparse_enabled=True,
+    )
+
+
+@patch("app.api.dependencies.QdrantVectorStore")
+@patch("app.api.dependencies.get_sparse_embedding_provider")
+@patch("app.api.dependencies.get_embedding_provider")
+@patch("app.api.dependencies.get_settings")
+def test_hybrid_search_service_is_created_and_cached(
+    settings_factory: Mock,
+    provider_factory: Mock,
+    sparse_provider_factory: Mock,
+    vector_store_class: Mock,
+) -> None:
+    settings = Mock(
+        qdrant_url="http://localhost:6333",
+        qdrant_hybrid_collection_name="test_hybrid_chunks",
+        dense_embedding_dimensions=384,
+    )
+    provider = Mock()
+    sparse_provider = Mock()
+    vector_store = Mock()
+
+    settings_factory.return_value = settings
+    provider_factory.return_value = provider
+    sparse_provider_factory.return_value = sparse_provider
+    vector_store_class.return_value = vector_store
+
+    first = get_hybrid_search_service()
+    second = get_hybrid_search_service()
+
+    assert isinstance(first, HybridSearchService)
+    assert second is first
+    assert first.embedding_provider is provider
     assert first.sparse_embedding_provider is sparse_provider
     assert first.vector_store is vector_store
 
