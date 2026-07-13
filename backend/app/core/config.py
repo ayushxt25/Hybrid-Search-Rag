@@ -14,6 +14,7 @@ class Settings(BaseSettings):
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection_name: str = "internal_document_chunks"
+    qdrant_hybrid_collection_name: str = "internal_document_chunks_hybrid"
     dense_embedding_dimensions: int = Field(default=384, gt=0)
 
     model_config = SettingsConfigDict(
