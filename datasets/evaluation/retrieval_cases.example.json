@@ -1,0 +1,19 @@
+[
+  {
+    "case_id": "remote-work-days",
+    "query": "How many days may employees work remotely?",
+    "relevant_chunk_ids": [
+      "1111111111111111111111111111111111111111111111111111111111111111"
+    ],
+    "document_id": null
+  },
+  {
+    "case_id": "paid-leave-days",
+    "query": "How many paid leave days do employees receive?",
+    "relevant_chunk_ids": [
+      "2222222222222222222222222222222222222222222222222222222222222222",
+      "3333333333333333333333333333333333333333333333333333333333333333"
+    ],
+    "document_id": null
+  }
+]
