@@ -55,6 +55,13 @@ with structured `citations`, emitted `citation_markers`, context metadata, and
 model metadata. If retrieval finds no evidence, the service returns the
 deterministic insufficient-context answer without invoking OpenAI.
 
+Only grounded-answer generation is rate limited. By default, each client
+address may make 10 requests per 60 seconds. Responses include
+`X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`; denied
+requests return `429` with `Retry-After`. The limiter is in-memory, resets on
+process restart, and is suitable for local or single-process deployment only.
+Redis or distributed limiting is future work.
+
 `OPENAI_API_KEY` is required only when generation is actually invoked. Provider
 and network errors are returned with sanitized API details; prompts, retrieved
 context, keys, raw provider responses, and raw provider exception messages are

@@ -1,9 +1,13 @@
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_grounded_answer_service
+from app.api.dependencies import (
+    get_grounded_answer_rate_limiter,
+    get_grounded_answer_service,
+)
 from app.generation.models import AnswerCitation, GroundedAnswerResult
 from app.generation.openai import (
     GenerationAuthenticationError,
@@ -12,6 +16,7 @@ from app.generation.openai import (
     GenerationRateLimitError,
 )
 from app.main import app
+from app.rate_limit.models import RateLimitDecision
 from app.vectorstore.exceptions import (
     VectorStoreConfigurationError,
     VectorStoreConnectionError,
@@ -42,9 +47,27 @@ class StubGroundedAnswerService:
         return self.result
 
 
+class StubRateLimiter:
+    def __init__(self, decision: RateLimitDecision | None = None) -> None:
+        self.decision = decision or RateLimitDecision(
+            allowed=True,
+            limit=10,
+            remaining=9,
+            reset_after_seconds=60,
+        )
+        self.keys = []
+
+    def check(self, key: str) -> RateLimitDecision:
+        self.keys.append(key)
+        return self.decision
+
+
 @pytest.fixture(autouse=True)
 def clear_dependency_overrides():
     app.dependency_overrides.clear()
+    app.dependency_overrides[get_grounded_answer_rate_limiter] = lambda: (
+        StubRateLimiter()
+    )
 
     yield
 
@@ -53,6 +76,10 @@ def clear_dependency_overrides():
 
 def override_answer_service(service: StubGroundedAnswerService) -> None:
     app.dependency_overrides[get_grounded_answer_service] = lambda: service
+
+
+def override_rate_limiter(limiter: StubRateLimiter) -> None:
+    app.dependency_overrides[get_grounded_answer_rate_limiter] = lambda: limiter
 
 
 def create_answer_result() -> GroundedAnswerResult:
@@ -123,6 +150,9 @@ def test_grounded_answer_returns_answer_response() -> None:
     )
 
     assert response.status_code == 200
+    assert response.headers["X-RateLimit-Limit"] == "10"
+    assert response.headers["X-RateLimit-Remaining"] == "9"
+    assert response.headers["X-RateLimit-Reset"] == "60"
     body = response.json()
     assert body["answer"] == service.result.answer
     assert body["model_name"] == "gpt-test"
@@ -289,3 +319,75 @@ def test_dependency_override_prevents_real_external_access() -> None:
     assert response.status_code == 200
     provider_class.assert_not_called()
     vector_store_class.assert_not_called()
+
+
+def test_grounded_answer_denied_request_returns_429_and_headers() -> None:
+    service = StubGroundedAnswerService()
+    limiter = StubRateLimiter(
+        RateLimitDecision(
+            allowed=False,
+            limit=10,
+            remaining=0,
+            reset_after_seconds=42,
+        )
+    )
+    override_answer_service(service)
+    override_rate_limiter(limiter)
+
+    response = post_grounded({"question": "remote work"})
+
+    assert response.status_code == 429
+    assert response.json() == {
+        "detail": "Too many grounded-answer requests. Please try again later."
+    }
+    assert response.headers["Retry-After"] == "42"
+    assert response.headers["X-RateLimit-Limit"] == "10"
+    assert response.headers["X-RateLimit-Remaining"] == "0"
+    assert response.headers["X-RateLimit-Reset"] == "42"
+    assert "X-Request-ID" in response.headers
+    assert service.requests == []
+
+
+def test_disabled_rate_limiting_skips_limiter() -> None:
+    class FailingLimiter:
+        def check(self, key: str) -> RateLimitDecision:
+            raise AssertionError("limiter should not be called")
+
+    service = StubGroundedAnswerService()
+    override_answer_service(service)
+    app.dependency_overrides[get_grounded_answer_rate_limiter] = FailingLimiter
+
+    with patch(
+        "app.api.routes.answers.get_settings",
+        return_value=SimpleNamespace(grounded_answer_rate_limit_enabled=False),
+    ):
+        response = post_grounded({"question": "remote work"})
+
+    assert response.status_code == 200
+    assert "X-RateLimit-Limit" not in response.headers
+    assert len(service.requests) == 1
+
+
+def test_rate_limited_log_excludes_client_key(caplog) -> None:
+    service = StubGroundedAnswerService()
+    limiter = StubRateLimiter(
+        RateLimitDecision(
+            allowed=False,
+            limit=10,
+            remaining=0,
+            reset_after_seconds=42,
+        )
+    )
+    override_answer_service(service)
+    override_rate_limiter(limiter)
+
+    with caplog.at_level("WARNING", logger="app.grounded_answer"):
+        response = post_grounded({"question": "remote work"})
+
+    assert response.status_code == 429
+    assert "testclient" not in caplog.text
+    assert "remote work" not in caplog.text
+    assert any(
+        getattr(record, "event", None) == "grounded_answer_rate_limited"
+        for record in caplog.records
+    )

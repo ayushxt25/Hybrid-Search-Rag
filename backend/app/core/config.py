@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     prompt_require_citations: bool = True
     prompt_allow_general_knowledge: bool = False
     generation_require_answer_citations: bool = True
+    grounded_answer_rate_limit_enabled: bool = True
+    grounded_answer_rate_limit_requests: int = Field(default=10, gt=0)
+    grounded_answer_rate_limit_window_seconds: int = Field(default=60, gt=0)
     openai_api_key: str = ""
     openai_base_url: str | None = None
     openai_generation_model: str = "gpt-4.1-mini"

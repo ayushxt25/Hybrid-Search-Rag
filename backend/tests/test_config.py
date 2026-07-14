@@ -68,6 +68,18 @@ def test_generation_environment_overrides(monkeypatch) -> None:
     assert settings.openai_generation_max_retries == 4
 
 
+def test_grounded_answer_rate_limit_environment_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("GROUNDED_ANSWER_RATE_LIMIT_ENABLED", "false")
+    monkeypatch.setenv("GROUNDED_ANSWER_RATE_LIMIT_REQUESTS", "7")
+    monkeypatch.setenv("GROUNDED_ANSWER_RATE_LIMIT_WINDOW_SECONDS", "30")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.grounded_answer_rate_limit_enabled is False
+    assert settings.grounded_answer_rate_limit_requests == 7
+    assert settings.grounded_answer_rate_limit_window_seconds == 30
+
+
 def test_blank_openai_base_url_is_treated_as_unset(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_BASE_URL", "")
 
@@ -105,6 +117,10 @@ def test_zero_openai_generation_max_retries_is_allowed(monkeypatch) -> None:
         ("OPENAI_GENERATION_TIMEOUT_SECONDS", "0", "greater than 0"),
         ("OPENAI_GENERATION_TIMEOUT_SECONDS", "nan", "openai timeout must be finite"),
         ("OPENAI_GENERATION_MAX_RETRIES", "-1", "greater than or equal to 0"),
+        ("GROUNDED_ANSWER_RATE_LIMIT_REQUESTS", "0", "greater than 0"),
+        ("GROUNDED_ANSWER_RATE_LIMIT_REQUESTS", "-1", "greater than 0"),
+        ("GROUNDED_ANSWER_RATE_LIMIT_WINDOW_SECONDS", "0", "greater than 0"),
+        ("GROUNDED_ANSWER_RATE_LIMIT_WINDOW_SECONDS", "-1", "greater than 0"),
         ("LOG_LEVEL", "TRACE", "log_level must be one of"),
     ],
 )

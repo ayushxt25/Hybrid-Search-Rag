@@ -8,6 +8,7 @@ from app.api.dependencies import (
     get_document_indexing_service,
     get_embedding_provider,
     get_generation_provider,
+    get_grounded_answer_rate_limiter,
     get_grounded_answer_service,
     get_grounded_prompt_builder,
     get_hybrid_search_service,
@@ -18,6 +19,7 @@ from app.context.assembler import ContextAssembler
 from app.generation.openai import OpenAIGenerationProvider
 from app.generation.service import GroundedAnswerService
 from app.prompting.builder import GroundedPromptBuilder
+from app.rate_limit.in_memory import InMemoryFixedWindowRateLimiter
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
 from app.services.hybrid_search import HybridSearchService
@@ -36,6 +38,7 @@ def clear_dependency_caches():
     get_grounded_prompt_builder.cache_clear()
     get_generation_provider.cache_clear()
     get_grounded_answer_service.cache_clear()
+    get_grounded_answer_rate_limiter.cache_clear()
 
     yield
 
@@ -49,6 +52,7 @@ def clear_dependency_caches():
     get_grounded_prompt_builder.cache_clear()
     get_generation_provider.cache_clear()
     get_grounded_answer_service.cache_clear()
+    get_grounded_answer_rate_limiter.cache_clear()
 
 
 @patch("app.api.dependencies.SentenceTransformerEmbeddingProvider")
@@ -399,3 +403,21 @@ def test_grounded_answer_service_is_created_and_cached(
     assert first.prompt_builder is prompt_builder
     assert first.generation_provider is provider
     assert first.require_answer_citations is False
+
+
+@patch("app.api.dependencies.get_settings")
+def test_grounded_answer_rate_limiter_is_created_and_cached(
+    settings_factory: Mock,
+) -> None:
+    settings_factory.return_value = Mock(
+        grounded_answer_rate_limit_requests=3,
+        grounded_answer_rate_limit_window_seconds=9,
+    )
+
+    first = get_grounded_answer_rate_limiter()
+    second = get_grounded_answer_rate_limiter()
+
+    assert isinstance(first, InMemoryFixedWindowRateLimiter)
+    assert second is first
+    assert first.limit == 3
+    assert first.window_seconds == 9

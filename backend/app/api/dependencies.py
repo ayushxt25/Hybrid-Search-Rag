@@ -9,6 +9,7 @@ from app.generation.openai import OpenAIGenerationProvider
 from app.generation.service import GroundedAnswerService
 from app.ingestion.pipeline import DocumentIngestionPipeline
 from app.prompting.builder import GroundedPromptBuilder
+from app.rate_limit.in_memory import InMemoryFixedWindowRateLimiter
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
 from app.services.hybrid_search import HybridSearchService
@@ -177,4 +178,15 @@ def get_grounded_answer_service() -> GroundedAnswerService:
         prompt_builder=get_grounded_prompt_builder(),
         generation_provider=get_generation_provider(),
         require_answer_citations=settings.generation_require_answer_citations,
+    )
+
+
+@lru_cache
+def get_grounded_answer_rate_limiter() -> InMemoryFixedWindowRateLimiter:
+    """Return the shared grounded-answer rate limiter."""
+    settings = get_settings()
+
+    return InMemoryFixedWindowRateLimiter(
+        limit=settings.grounded_answer_rate_limit_requests,
+        window_seconds=settings.grounded_answer_rate_limit_window_seconds,
     )
