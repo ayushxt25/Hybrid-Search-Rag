@@ -118,4 +118,7 @@ def get_hybrid_search_service() -> HybridSearchService:
         embedding_provider=embedding_provider,
         sparse_embedding_provider=sparse_embedding_provider,
         vector_store=vector_store,
+        dense_weight=settings.hybrid_dense_weight,
+        sparse_weight=settings.hybrid_sparse_weight,
+        rrf_k=settings.hybrid_rrf_k,
     )

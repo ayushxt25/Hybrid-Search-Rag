@@ -243,6 +243,9 @@ def test_hybrid_search_service_is_created_and_cached(
         qdrant_url="http://localhost:6333",
         qdrant_hybrid_collection_name="test_hybrid_chunks",
         dense_embedding_dimensions=384,
+        hybrid_dense_weight=2.0,
+        hybrid_sparse_weight=0.75,
+        hybrid_rrf_k=40,
     )
     provider = Mock()
     sparse_provider = Mock()
@@ -261,6 +264,9 @@ def test_hybrid_search_service_is_created_and_cached(
     assert first.embedding_provider is provider
     assert first.sparse_embedding_provider is sparse_provider
     assert first.vector_store is vector_store
+    assert first.dense_weight == 2.0
+    assert first.sparse_weight == 0.75
+    assert first.rrf_k == 40
 
     vector_store_class.assert_called_once_with(
         url="http://localhost:6333",

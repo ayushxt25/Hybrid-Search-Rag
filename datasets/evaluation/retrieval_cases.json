@@ -1,0 +1,146 @@
+[
+  {
+    "case_id": "remote-new-hire-eligibility",
+    "query": "When can a newly hired employee become eligible for remote work?",
+    "relevant_chunk_ids": [
+      "e44f1979a58b4ab51e6ac5339efc561f560421eea9720aeabc856f4e503fe210"
+    ],
+    "document_id": "4ea990c0a30953456b7b88d966f601f147591d50ff4963d5720abb8ee9eb9167"
+  },
+  {
+    "case_id": "remote-equipment-allowance",
+    "query": "What is the remote-work equipment allowance?",
+    "relevant_chunk_ids": [
+      "ffc37df1d3c4e0972899cdd24c183892013929a315e5857321c542a1d59e8cad"
+    ],
+    "document_id": "4ea990c0a30953456b7b88d966f601f147591d50ff4963d5720abb8ee9eb9167"
+  },
+  {
+    "case_id": "remote-policy-code",
+    "query": "HR-REM-204",
+    "relevant_chunk_ids": [
+      "e44f1979a58b4ab51e6ac5339efc561f560421eea9720aeabc856f4e503fe210"
+    ],
+    "document_id": "4ea990c0a30953456b7b88d966f601f147591d50ff4963d5720abb8ee9eb9167"
+  },
+  {
+    "case_id": "remote-in-office-weekday",
+    "query": "Which weekday must remote employees attend the office?",
+    "relevant_chunk_ids": [
+      "e44f1979a58b4ab51e6ac5339efc561f560421eea9720aeabc856f4e503fe210"
+    ],
+    "document_id": "4ea990c0a30953456b7b88d966f601f147591d50ff4963d5720abb8ee9eb9167"
+  },
+  {
+    "case_id": "remote-out-of-state-approval",
+    "query": "When is HR approval required for working from another state?",
+    "relevant_chunk_ids": [
+      "e44f1979a58b4ab51e6ac5339efc561f560421eea9720aeabc856f4e503fe210"
+    ],
+    "document_id": "4ea990c0a30953456b7b88d966f601f147591d50ff4963d5720abb8ee9eb9167"
+  },
+  {
+    "case_id": "remote-request-submission-location",
+    "query": "Where should an employee submit a remote-work request?",
+    "relevant_chunk_ids": [
+      "ffc37df1d3c4e0972899cdd24c183892013929a315e5857321c542a1d59e8cad"
+    ],
+    "document_id": "4ea990c0a30953456b7b88d966f601f147591d50ff4963d5720abb8ee9eb9167"
+  },
+  {
+    "case_id": "security-credential-leak-classification",
+    "query": "How is a suspected credential leak classified?",
+    "relevant_chunk_ids": [
+      "904ebc098a6fe50e68097bfc1d75dd986988065e921c3878c169326a11c44353"
+    ],
+    "document_id": "74204fc1262bdc5807cbd9d492d1db5c77b087c6ce45d3c9990b35bb8a46365e"
+  },
+  {
+    "case_id": "security-credential-leak-reporting-time",
+    "query": "How quickly must employees report a suspected credential leak?",
+    "relevant_chunk_ids": [
+      "904ebc098a6fe50e68097bfc1d75dd986988065e921c3878c169326a11c44353"
+    ],
+    "document_id": "74204fc1262bdc5807cbd9d492d1db5c77b087c6ce45d3c9990b35bb8a46365e"
+  },
+  {
+    "case_id": "security-incident-code",
+    "query": "SEC-INC-417",
+    "relevant_chunk_ids": [
+      "904ebc098a6fe50e68097bfc1d75dd986988065e921c3878c169326a11c44353"
+    ],
+    "document_id": "74204fc1262bdc5807cbd9d492d1db5c77b087c6ce45d3c9990b35bb8a46365e"
+  },
+  {
+    "case_id": "security-refresh-token-error-code",
+    "query": "AUTH-TOKEN-91",
+    "relevant_chunk_ids": [
+      "ac0af4b6f0ad875d35860de9e7fa947b16afa2806f70bbf7f8db36da651b0d15"
+    ],
+    "document_id": "74204fc1262bdc5807cbd9d492d1db5c77b087c6ce45d3c9990b35bb8a46365e"
+  },
+  {
+    "case_id": "security-compromised-credential-actions",
+    "query": "What actions must be taken after credentials are compromised?",
+    "relevant_chunk_ids": [
+      "904ebc098a6fe50e68097bfc1d75dd986988065e921c3878c169326a11c44353"
+    ],
+    "document_id": "74204fc1262bdc5807cbd9d492d1db5c77b087c6ce45d3c9990b35bb8a46365e"
+  },
+  {
+    "case_id": "security-external-communication-approval",
+    "query": "Who approves external communication during a security incident?",
+    "relevant_chunk_ids": [
+      "ac0af4b6f0ad875d35860de9e7fa947b16afa2806f70bbf7f8db36da651b0d15"
+    ],
+    "document_id": "74204fc1262bdc5807cbd9d492d1db5c77b087c6ce45d3c9990b35bb8a46365e"
+  },
+  {
+    "case_id": "release-normal-schedule",
+    "query": "When are normal production releases performed?",
+    "relevant_chunk_ids": [
+      "cc4454eaefcd88ef91e49a38d5897514ca32136d5f89919ea655f1c0c032e569"
+    ],
+    "document_id": "3dfe005543e7fcdf9378cb2c4be0c8a221c94964e991c2017e39c96a68653d03"
+  },
+  {
+    "case_id": "release-reviewer-count",
+    "query": "How many reviewers are required for a production release?",
+    "relevant_chunk_ids": [
+      "cc4454eaefcd88ef91e49a38d5897514ca32136d5f89919ea655f1c0c032e569"
+    ],
+    "document_id": "3dfe005543e7fcdf9378cb2c4be0c8a221c94964e991c2017e39c96a68653d03"
+  },
+  {
+    "case_id": "release-process-identifier",
+    "query": "ENG-REL-302",
+    "relevant_chunk_ids": [
+      "cc4454eaefcd88ef91e49a38d5897514ca32136d5f89919ea655f1c0c032e569"
+    ],
+    "document_id": "3dfe005543e7fcdf9378cb2c4be0c8a221c94964e991c2017e39c96a68653d03"
+  },
+  {
+    "case_id": "release-deployment-gate-error-code",
+    "query": "DEPLOY-GATE-73",
+    "relevant_chunk_ids": [
+      "cc4454eaefcd88ef91e49a38d5897514ca32136d5f89919ea655f1c0c032e569"
+    ],
+    "document_id": "3dfe005543e7fcdf9378cb2c4be0c8a221c94964e991c2017e39c96a68653d03"
+  },
+  {
+    "case_id": "release-database-migration-backup",
+    "query": "What is required before running a database migration?",
+    "relevant_chunk_ids": [
+      "cc4454eaefcd88ef91e49a38d5897514ca32136d5f89919ea655f1c0c032e569"
+    ],
+    "document_id": "3dfe005543e7fcdf9378cb2c4be0c8a221c94964e991c2017e39c96a68653d03"
+  },
+  {
+    "case_id": "release-emergency-approval",
+    "query": "Who must approve an emergency production release?",
+    "relevant_chunk_ids": [
+      "cc4454eaefcd88ef91e49a38d5897514ca32136d5f89919ea655f1c0c032e569"
+    ],
+    "document_id": "3dfe005543e7fcdf9378cb2c4be0c8a221c94964e991c2017e39c96a68653d03"
+  }
+]

@@ -1,6 +1,7 @@
 from functools import lru_cache
+from math import isfinite
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -16,6 +17,20 @@ class Settings(BaseSettings):
     qdrant_collection_name: str = "internal_document_chunks"
     qdrant_hybrid_collection_name: str = "internal_document_chunks_hybrid"
     dense_embedding_dimensions: int = Field(default=384, gt=0)
+    hybrid_dense_weight: float = 1.5
+    hybrid_sparse_weight: float = 1.0
+    hybrid_rrf_k: int = Field(default=60, gt=0)
+
+    @field_validator("hybrid_dense_weight", "hybrid_sparse_weight")
+    @classmethod
+    def validate_hybrid_weight(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("hybrid weights must be finite.")
+
+        if value <= 0:
+            raise ValueError("hybrid weights must be greater than zero.")
+
+        return value
 
     model_config = SettingsConfigDict(
         env_file=".env",

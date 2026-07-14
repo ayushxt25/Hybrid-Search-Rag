@@ -12,6 +12,7 @@ from app.schemas.search_request import (
 )
 
 DOCUMENT_ID = "d" * 64
+OTHER_DOCUMENT_ID = "e" * 64
 RELEVANT = "a" * 64
 IRRELEVANT = "b" * 64
 
@@ -37,12 +38,13 @@ def create_result(chunk_id: str) -> DenseSearchResult:
 
 def create_case(
     case_id: str = "remote-work",
+    document_id: str = DOCUMENT_ID,
 ) -> RetrievalEvaluationCase:
     return RetrievalEvaluationCase(
         case_id=case_id,
         query="How many remote days?",
         relevant_chunk_ids=[RELEVANT],
-        document_id=DOCUMENT_ID,
+        document_id=document_id,
     )
 
 
@@ -81,7 +83,10 @@ def create_runner() -> tuple[RetrievalEvaluationRunner, Mock, Mock, Mock]:
 
 def test_runner_calls_all_services_and_preserves_case_order() -> None:
     runner, dense, sparse, hybrid = create_runner()
-    cases = [create_case("first"), create_case("second")]
+    cases = [
+        create_case("first", document_id=DOCUMENT_ID),
+        create_case("second", document_id=OTHER_DOCUMENT_ID),
+    ]
 
     report = runner.run(cases, top_k=3, candidate_limit=10)
 
@@ -95,6 +100,7 @@ def test_runner_calls_all_services_and_preserves_case_order() -> None:
     assert report.dense.hit_rate == 1.0
     assert report.sparse.hit_rate == 0.0
     assert report.hybrid.mean_recall == 1.0
+    assert report.document_filter_applied is True
 
     dense_request = dense.search.call_args_list[0].args[0]
     sparse_request = sparse.search.call_args_list[0].args[0]
@@ -104,9 +110,47 @@ def test_runner_calls_all_services_and_preserves_case_order() -> None:
     assert sparse_request.limit == 3
     assert hybrid_request.limit == 3
     assert hybrid_request.candidate_limit == 10
-    assert dense_request.document_id == DOCUMENT_ID
-    assert sparse_request.document_id == DOCUMENT_ID
-    assert hybrid_request.document_id == DOCUMENT_ID
+    assert [call.args[0].document_id for call in dense.search.call_args_list] == [
+        DOCUMENT_ID,
+        OTHER_DOCUMENT_ID,
+    ]
+    assert [call.args[0].document_id for call in sparse.search.call_args_list] == [
+        DOCUMENT_ID,
+        OTHER_DOCUMENT_ID,
+    ]
+    assert [call.args[0].document_id for call in hybrid.search.call_args_list] == [
+        DOCUMENT_ID,
+        OTHER_DOCUMENT_ID,
+    ]
+
+
+def test_runner_use_document_filter_true_forwards_document_ids() -> None:
+    runner, dense, sparse, hybrid = create_runner()
+
+    report = runner.run([create_case()], use_document_filter=True)
+
+    assert report.document_filter_applied is True
+    assert dense.search.call_args.args[0].document_id == DOCUMENT_ID
+    assert sparse.search.call_args.args[0].document_id == DOCUMENT_ID
+    assert hybrid.search.call_args.args[0].document_id == DOCUMENT_ID
+
+
+def test_runner_global_search_passes_none_to_all_services() -> None:
+    runner, dense, sparse, hybrid = create_runner()
+    case = create_case()
+    original_case = case.model_copy(deep=True)
+
+    report = runner.run([case], use_document_filter=False)
+
+    assert report.document_filter_applied is False
+    assert dense.search.call_args.args[0].document_id is None
+    assert sparse.search.call_args.args[0].document_id is None
+    assert hybrid.search.call_args.args[0].document_id is None
+    assert case == original_case
+    assert case.document_id == DOCUMENT_ID
+    assert report.dense.hit_rate == 1.0
+    assert report.sparse.hit_rate == 0.0
+    assert report.hybrid.mean_recall == 1.0
 
 
 def test_runner_rejects_empty_cases() -> None:

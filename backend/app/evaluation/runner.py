@@ -32,6 +32,7 @@ class RetrievalEvaluationRunner:
         *,
         top_k: int = 5,
         candidate_limit: int = 20,
+        use_document_filter: bool = True,
     ) -> RetrievalComparisonReport:
         """Evaluate all retrieval methods for the supplied cases."""
         if not cases:
@@ -53,18 +54,19 @@ class RetrievalEvaluationRunner:
         hybrid_evaluations = []
 
         for case in cases:
+            document_id = case.document_id if use_document_filter else None
             dense_response = self.dense_search_service.search(
                 DenseSearchRequest(
                     query=case.query,
                     limit=top_k,
-                    document_id=case.document_id,
+                    document_id=document_id,
                 )
             )
             sparse_response = self.sparse_search_service.search(
                 SparseSearchRequest(
                     query=case.query,
                     limit=top_k,
-                    document_id=case.document_id,
+                    document_id=document_id,
                 )
             )
             hybrid_response = self.hybrid_search_service.search(
@@ -72,7 +74,7 @@ class RetrievalEvaluationRunner:
                     query=case.query,
                     limit=top_k,
                     candidate_limit=candidate_limit,
-                    document_id=case.document_id,
+                    document_id=document_id,
                 )
             )
 
@@ -103,6 +105,7 @@ class RetrievalEvaluationRunner:
 
         return RetrievalComparisonReport(
             top_k=top_k,
+            document_filter_applied=use_document_filter,
             dense=summarize_method(
                 method="Dense",
                 evaluations=dense_evaluations,

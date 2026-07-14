@@ -125,3 +125,129 @@ def test_rrf_rejects_invalid_k() -> None:
         match="k must be greater than zero",
     ):
         reciprocal_rank_fusion([], limit=1, k=0)
+
+
+def test_rrf_weights_none_matches_current_behavior() -> None:
+    dense_preferred = create_result("a" * 64)
+    sparse_preferred = create_result("b" * 64)
+
+    unweighted = reciprocal_rank_fusion(
+        [[dense_preferred, sparse_preferred], [sparse_preferred, dense_preferred]],
+        limit=2,
+        k=60,
+    )
+    default_weighted = reciprocal_rank_fusion(
+        [[dense_preferred, sparse_preferred], [sparse_preferred, dense_preferred]],
+        limit=2,
+        k=60,
+        weights=None,
+    )
+
+    assert default_weighted == unweighted
+
+
+def test_rrf_equal_explicit_weights_match_current_behavior() -> None:
+    dense_preferred = create_result("a" * 64)
+    sparse_preferred = create_result("b" * 64)
+
+    unweighted = reciprocal_rank_fusion(
+        [[dense_preferred, sparse_preferred], [sparse_preferred, dense_preferred]],
+        limit=2,
+        k=60,
+    )
+    equal_weighted = reciprocal_rank_fusion(
+        [[dense_preferred, sparse_preferred], [sparse_preferred, dense_preferred]],
+        limit=2,
+        k=60,
+        weights=[1.0, 1.0],
+    )
+
+    assert equal_weighted == unweighted
+
+
+def test_rrf_dense_favored_weights_change_ranking() -> None:
+    dense_preferred = create_result("a" * 64)
+    sparse_preferred = create_result("b" * 64)
+
+    results = reciprocal_rank_fusion(
+        [[dense_preferred, sparse_preferred], [sparse_preferred, dense_preferred]],
+        limit=2,
+        weights=[2.0, 1.0],
+    )
+
+    assert [result.chunk_id for result in results] == [
+        dense_preferred.chunk_id,
+        sparse_preferred.chunk_id,
+    ]
+
+
+def test_rrf_sparse_favored_weights_change_ranking() -> None:
+    dense_preferred = create_result("a" * 64)
+    sparse_preferred = create_result("b" * 64)
+
+    results = reciprocal_rank_fusion(
+        [[dense_preferred, sparse_preferred], [sparse_preferred, dense_preferred]],
+        limit=2,
+        weights=[1.0, 2.0],
+    )
+
+    assert [result.chunk_id for result in results] == [
+        sparse_preferred.chunk_id,
+        dense_preferred.chunk_id,
+    ]
+
+
+def test_rrf_duplicate_receives_weighted_contributions_from_both_lists() -> None:
+    duplicate = create_result("a" * 64)
+    dense_only = create_result("b" * 64)
+    sparse_only = create_result("c" * 64)
+
+    results = reciprocal_rank_fusion(
+        [[dense_only, duplicate], [duplicate, sparse_only]],
+        limit=3,
+        k=60,
+        weights=[2.0, 3.0],
+    )
+
+    assert results[0].chunk_id == duplicate.chunk_id
+    assert results[0].score == pytest.approx((2.0 / 62) + (3.0 / 61))
+    assert results[1].chunk_id == sparse_only.chunk_id
+    assert results[1].score == pytest.approx(3.0 / 62)
+    assert results[2].chunk_id == dense_only.chunk_id
+    assert results[2].score == pytest.approx(2.0 / 61)
+
+
+def test_rrf_rejects_weight_count_mismatch() -> None:
+    with pytest.raises(ValueError, match="weights must match"):
+        reciprocal_rank_fusion([[create_result("a" * 64)], []], limit=1, weights=[1.0])
+
+
+@pytest.mark.parametrize("weight", [0.0, -1.0])
+def test_rrf_rejects_non_positive_weights(weight: float) -> None:
+    with pytest.raises(ValueError, match="weights must be greater than zero"):
+        reciprocal_rank_fusion([[create_result("a" * 64)]], limit=1, weights=[weight])
+
+
+@pytest.mark.parametrize("weight", [float("nan"), float("inf")])
+def test_rrf_rejects_non_finite_weights(weight: float) -> None:
+    with pytest.raises(ValueError, match="weights must be finite"):
+        reciprocal_rank_fusion([[create_result("a" * 64)]], limit=1, weights=[weight])
+
+
+def test_rrf_weighted_fusion_does_not_mutate_ranked_lists_or_results() -> None:
+    dense_preferred = create_result("a" * 64, score=0.8)
+    sparse_preferred = create_result("b" * 64, score=0.7)
+    ranked_lists = [[dense_preferred, sparse_preferred], [sparse_preferred]]
+    original_ranked_lists = [list(ranked_list) for ranked_list in ranked_lists]
+    original_scores = [dense_preferred.score, sparse_preferred.score]
+
+    fused = reciprocal_rank_fusion(
+        ranked_lists,
+        limit=2,
+        weights=[2.0, 1.0],
+    )
+
+    assert ranked_lists == original_ranked_lists
+    assert [dense_preferred.score, sparse_preferred.score] == original_scores
+    assert fused[0] is not dense_preferred
+    assert fused[1] is not sparse_preferred

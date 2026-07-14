@@ -2,6 +2,7 @@ from pathlib import Path
 
 from app.embeddings.base import DenseEmbeddingProvider
 from app.ingestion.pipeline import DocumentIngestionPipeline
+from app.schemas.document import IngestedDocument
 from app.schemas.indexing import IndexedDocumentResult
 from app.sparse.base import SparseEmbeddingProvider
 from app.vectorstore.qdrant import QdrantVectorStore
@@ -28,6 +29,23 @@ class DocumentIndexingService:
         document_path: Path,
     ) -> IndexedDocumentResult:
         """Ingest and persist one document in the vector database."""
+        ingested_document = self.index_document_for_internal_use(document_path)
+        document = ingested_document.document
+
+        return IndexedDocumentResult(
+            document_id=document.document_id,
+            content_hash=document.content_hash,
+            file_name=document.file_name,
+            file_extension=document.file_extension,
+            chunk_count=ingested_document.chunk_count,
+            indexed_points=ingested_document.chunk_count,
+        )
+
+    def index_document_for_internal_use(
+        self,
+        document_path: Path,
+    ) -> IngestedDocument:
+        """Ingest, index, and return chunk metadata for internal tooling."""
         ingested_document = self.ingestion_pipeline.ingest(document_path)
 
         dense_embeddings = self.embedding_provider.embed_chunks(
@@ -60,13 +78,4 @@ class DocumentIndexingService:
                 "Indexed point count does not match document chunk count."
             )
 
-        document = ingested_document.document
-
-        return IndexedDocumentResult(
-            document_id=document.document_id,
-            content_hash=document.content_hash,
-            file_name=document.file_name,
-            file_extension=document.file_extension,
-            chunk_count=ingested_document.chunk_count,
-            indexed_points=indexed_points,
-        )
+        return ingested_document

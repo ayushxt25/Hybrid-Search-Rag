@@ -56,6 +56,7 @@ class RetrievalComparisonReport(BaseModel):
     """Dense, sparse, and hybrid retrieval evaluation results."""
 
     top_k: int
+    document_filter_applied: bool
     dense: RetrievalMethodSummary
     sparse: RetrievalMethodSummary
     hybrid: RetrievalMethodSummary

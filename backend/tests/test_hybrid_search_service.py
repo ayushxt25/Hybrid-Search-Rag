@@ -35,7 +35,12 @@ def create_result(
     )
 
 
-def create_service() -> tuple[HybridSearchService, Mock, Mock, Mock]:
+def create_service(
+    *,
+    dense_weight: float = 1.5,
+    sparse_weight: float = 1.0,
+    rrf_k: int = 60,
+) -> tuple[HybridSearchService, Mock, Mock, Mock]:
     embedding_provider = Mock(spec=DenseEmbeddingProvider)
     sparse_embedding_provider = Mock(spec=SparseEmbeddingProvider)
     vector_store = Mock(spec=QdrantVectorStore)
@@ -57,6 +62,9 @@ def create_service() -> tuple[HybridSearchService, Mock, Mock, Mock]:
         embedding_provider=embedding_provider,
         sparse_embedding_provider=sparse_embedding_provider,
         vector_store=vector_store,
+        dense_weight=dense_weight,
+        sparse_weight=sparse_weight,
+        rrf_k=rrf_k,
     )
 
     return service, embedding_provider, sparse_embedding_provider, vector_store
@@ -102,9 +110,78 @@ def test_search_retrieves_candidates_and_fuses_results() -> None:
             vector_store.search_dense.return_value,
             vector_store.search_sparse.return_value,
         ],
+        weights=[1.5, 1.0],
         limit=3,
         k=60,
     )
+
+
+def test_search_passes_configured_weights_and_rrf_k_to_fusion() -> None:
+    service, _, _, vector_store = create_service(
+        dense_weight=2.0,
+        sparse_weight=0.75,
+        rrf_k=40,
+    )
+    fused_result = create_result("d" * 64)
+
+    with patch(
+        "app.services.hybrid_search.reciprocal_rank_fusion",
+        return_value=[fused_result],
+    ) as fusion:
+        service.search(
+            HybridSearchRequest(
+                query="remote work policy",
+                limit=3,
+                candidate_limit=10,
+            )
+        )
+
+    fusion.assert_called_once_with(
+        [
+            vector_store.search_dense.return_value,
+            vector_store.search_sparse.return_value,
+        ],
+        weights=[2.0, 0.75],
+        limit=3,
+        k=40,
+    )
+
+
+def test_service_defaults_to_evaluated_weights() -> None:
+    service, _, _, _ = create_service()
+
+    assert service.dense_weight == 1.5
+    assert service.sparse_weight == 1.0
+    assert service.rrf_k == 60
+
+
+@pytest.mark.parametrize("dense_weight", [0.0, -1.0])
+def test_service_rejects_non_positive_dense_weight(dense_weight: float) -> None:
+    with pytest.raises(ValueError, match="hybrid weights must be greater than zero"):
+        create_service(dense_weight=dense_weight)
+
+
+@pytest.mark.parametrize("dense_weight", [float("nan"), float("inf")])
+def test_service_rejects_non_finite_dense_weight(dense_weight: float) -> None:
+    with pytest.raises(ValueError, match="hybrid weights must be finite"):
+        create_service(dense_weight=dense_weight)
+
+
+@pytest.mark.parametrize("sparse_weight", [0.0, -1.0])
+def test_service_rejects_non_positive_sparse_weight(sparse_weight: float) -> None:
+    with pytest.raises(ValueError, match="hybrid weights must be greater than zero"):
+        create_service(sparse_weight=sparse_weight)
+
+
+@pytest.mark.parametrize("sparse_weight", [float("nan"), float("inf")])
+def test_service_rejects_non_finite_sparse_weight(sparse_weight: float) -> None:
+    with pytest.raises(ValueError, match="hybrid weights must be finite"):
+        create_service(sparse_weight=sparse_weight)
+
+
+def test_service_rejects_invalid_rrf_k() -> None:
+    with pytest.raises(ValueError, match="rrf_k must be greater than zero"):
+        create_service(rrf_k=0)
 
 
 @pytest.mark.parametrize(

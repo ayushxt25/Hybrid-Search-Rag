@@ -1,3 +1,5 @@
+from math import isfinite
+
 from app.embeddings.base import DenseEmbeddingProvider
 from app.retrieval.rrf import reciprocal_rank_fusion
 from app.schemas.search_request import (
@@ -17,11 +19,24 @@ class HybridSearchService:
         embedding_provider: DenseEmbeddingProvider,
         sparse_embedding_provider: SparseEmbeddingProvider,
         vector_store: QdrantVectorStore,
+        dense_weight: float = 1.5,
+        sparse_weight: float = 1.0,
         rrf_k: int = 60,
     ) -> None:
+        if not isfinite(dense_weight) or not isfinite(sparse_weight):
+            raise ValueError("hybrid weights must be finite.")
+
+        if dense_weight <= 0 or sparse_weight <= 0:
+            raise ValueError("hybrid weights must be greater than zero.")
+
+        if rrf_k <= 0:
+            raise ValueError("rrf_k must be greater than zero.")
+
         self.embedding_provider = embedding_provider
         self.sparse_embedding_provider = sparse_embedding_provider
         self.vector_store = vector_store
+        self.dense_weight = dense_weight
+        self.sparse_weight = sparse_weight
         self.rrf_k = rrf_k
 
     def search(
@@ -51,6 +66,10 @@ class HybridSearchService:
 
         fused_results = reciprocal_rank_fusion(
             [dense_results, sparse_results],
+            weights=[
+                self.dense_weight,
+                self.sparse_weight,
+            ],
             limit=request.limit,
             k=self.rrf_k,
         )
