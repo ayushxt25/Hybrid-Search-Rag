@@ -21,3 +21,16 @@ Retrieved document text is treated as untrusted evidence, not executable
 instructions. Source markers are assigned before generation, insufficient
 context is encoded explicitly when no sources are available, and general
 knowledge is disabled by default.
+
+## Provider-Neutral Generation
+
+The full answer path is retrieval, context assembly, prompt construction,
+provider-neutral generation, and grounded answer result. The generation provider
+interface is isolated from retrieval, Qdrant, FastAPI, and context assembly so a
+real provider can be added later without changing the earlier stages.
+
+When no context sources are assembled, the answer service skips model invocation
+and returns a deterministic insufficient-context answer. Character counts are
+used until provider token accounting exists. Citation sources are returned
+structurally with the answer, but citation parsing and correctness checking are
+future work. No external generation provider is connected yet.
