@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     hybrid_dense_weight: float = 1.5
     hybrid_sparse_weight: float = 1.0
     hybrid_rrf_k: int = Field(default=60, gt=0)
+    context_max_characters: int = Field(default=12000, gt=0)
+    context_max_sources: int = Field(default=8, gt=0)
+    context_include_metadata_headers: bool = True
 
     @field_validator("hybrid_dense_weight", "hybrid_sparse_weight")
     @classmethod

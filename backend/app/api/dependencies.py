@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from app.context.assembler import ContextAssembler
 from app.core.config import get_settings
 from app.embeddings.sentence_transformer import (
     SentenceTransformerEmbeddingProvider,
@@ -121,4 +122,16 @@ def get_hybrid_search_service() -> HybridSearchService:
         dense_weight=settings.hybrid_dense_weight,
         sparse_weight=settings.hybrid_sparse_weight,
         rrf_k=settings.hybrid_rrf_k,
+    )
+
+
+@lru_cache
+def get_context_assembler() -> ContextAssembler:
+    """Return the shared retrieval-context assembler."""
+    settings = get_settings()
+
+    return ContextAssembler(
+        max_characters=settings.context_max_characters,
+        max_sources=settings.context_max_sources,
+        include_metadata_headers=settings.context_include_metadata_headers,
     )

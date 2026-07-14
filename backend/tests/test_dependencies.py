@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from app.api.dependencies import (
+    get_context_assembler,
     get_dense_search_service,
     get_document_indexing_service,
     get_embedding_provider,
@@ -10,6 +11,7 @@ from app.api.dependencies import (
     get_sparse_embedding_provider,
     get_sparse_search_service,
 )
+from app.context.assembler import ContextAssembler
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
 from app.services.hybrid_search import HybridSearchService
@@ -24,6 +26,7 @@ def clear_dependency_caches():
     get_dense_search_service.cache_clear()
     get_sparse_search_service.cache_clear()
     get_hybrid_search_service.cache_clear()
+    get_context_assembler.cache_clear()
 
     yield
 
@@ -33,6 +36,7 @@ def clear_dependency_caches():
     get_dense_search_service.cache_clear()
     get_sparse_search_service.cache_clear()
     get_hybrid_search_service.cache_clear()
+    get_context_assembler.cache_clear()
 
 
 @patch("app.api.dependencies.SentenceTransformerEmbeddingProvider")
@@ -274,3 +278,21 @@ def test_hybrid_search_service_is_created_and_cached(
         vector_dimensions=384,
         sparse_enabled=True,
     )
+
+
+@patch("app.api.dependencies.get_settings")
+def test_context_assembler_is_created_and_cached(settings_factory: Mock) -> None:
+    settings_factory.return_value = Mock(
+        context_max_characters=5000,
+        context_max_sources=4,
+        context_include_metadata_headers=False,
+    )
+
+    first = get_context_assembler()
+    second = get_context_assembler()
+
+    assert isinstance(first, ContextAssembler)
+    assert second is first
+    assert first.max_characters == 5000
+    assert first.max_sources == 4
+    assert first.include_metadata_headers is False

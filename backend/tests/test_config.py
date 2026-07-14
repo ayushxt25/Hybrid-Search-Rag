@@ -16,6 +16,18 @@ def test_hybrid_weight_environment_overrides(monkeypatch) -> None:
     assert settings.hybrid_rrf_k == 40
 
 
+def test_context_environment_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("CONTEXT_MAX_CHARACTERS", "5000")
+    monkeypatch.setenv("CONTEXT_MAX_SOURCES", "4")
+    monkeypatch.setenv("CONTEXT_INCLUDE_METADATA_HEADERS", "false")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.context_max_characters == 5000
+    assert settings.context_max_sources == 4
+    assert settings.context_include_metadata_headers is False
+
+
 @pytest.mark.parametrize(
     ("env_name", "env_value", "message"),
     [
@@ -28,6 +40,10 @@ def test_hybrid_weight_environment_overrides(monkeypatch) -> None:
         ("HYBRID_SPARSE_WEIGHT", "nan", "hybrid weights must be finite"),
         ("HYBRID_SPARSE_WEIGHT", "inf", "hybrid weights must be finite"),
         ("HYBRID_RRF_K", "0", "greater than 0"),
+        ("CONTEXT_MAX_CHARACTERS", "0", "greater than 0"),
+        ("CONTEXT_MAX_CHARACTERS", "-1", "greater than 0"),
+        ("CONTEXT_MAX_SOURCES", "0", "greater than 0"),
+        ("CONTEXT_MAX_SOURCES", "-1", "greater than 0"),
     ],
 )
 def test_hybrid_setting_validation(
