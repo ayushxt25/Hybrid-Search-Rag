@@ -69,3 +69,15 @@ uses the real local ingestion, embedding, Qdrant retrieval, context assembly,
 prompting, answer route, and citation validation pipeline, but replaces OpenAI
 with a deterministic in-process stub, so no API key or generation credits are
 used. Success validates citation markers and source metadata.
+
+
+## Request Observability
+
+HTTP responses include `X-Request-ID`. A valid incoming request ID is preserved;
+missing, blank, unsafe, or overly long IDs are replaced with a generated UUID4.
+The grounded-answer pipeline records internal retrieval, context assembly,
+prompt construction, generation, and total timings. Logs intentionally exclude
+questions, document/context text, answers, prompts, identifiers, secrets, and raw
+provider responses. Observability logs can be disabled with
+`OBSERVABILITY_ENABLED=false`; timings are internal and are not exposed in API
+responses.

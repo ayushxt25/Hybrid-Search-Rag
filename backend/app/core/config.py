@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     environment: str = "development"
     api_v1_prefix: str = "/api/v1"
+    log_level: str = "INFO"
+    observability_enabled: bool = True
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection_name: str = "internal_document_chunks"
@@ -32,6 +34,18 @@ class Settings(BaseSettings):
     openai_generation_model: str = "gpt-4.1-mini"
     openai_generation_timeout_seconds: float = Field(default=30.0, gt=0)
     openai_generation_max_retries: int = Field(default=2, ge=0)
+
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, value: str) -> str:
+        normalized_value = value.upper()
+        allowed_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if normalized_value not in allowed_levels:
+            raise ValueError(
+                "log_level must be one of DEBUG, INFO, WARNING, ERROR, CRITICAL."
+            )
+
+        return normalized_value
 
     @field_validator("openai_base_url", mode="before")
     @classmethod

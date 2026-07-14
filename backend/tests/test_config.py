@@ -16,6 +16,16 @@ def test_hybrid_weight_environment_overrides(monkeypatch) -> None:
     assert settings.hybrid_rrf_k == 40
 
 
+def test_observability_environment_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("LOG_LEVEL", "warning")
+    monkeypatch.setenv("OBSERVABILITY_ENABLED", "false")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.log_level == "WARNING"
+    assert settings.observability_enabled is False
+
+
 def test_context_environment_overrides(monkeypatch) -> None:
     monkeypatch.setenv("CONTEXT_MAX_CHARACTERS", "5000")
     monkeypatch.setenv("CONTEXT_MAX_SOURCES", "4")
@@ -95,6 +105,7 @@ def test_zero_openai_generation_max_retries_is_allowed(monkeypatch) -> None:
         ("OPENAI_GENERATION_TIMEOUT_SECONDS", "0", "greater than 0"),
         ("OPENAI_GENERATION_TIMEOUT_SECONDS", "nan", "openai timeout must be finite"),
         ("OPENAI_GENERATION_MAX_RETRIES", "-1", "greater than or equal to 0"),
+        ("LOG_LEVEL", "TRACE", "log_level must be one of"),
     ],
 )
 def test_hybrid_setting_validation(

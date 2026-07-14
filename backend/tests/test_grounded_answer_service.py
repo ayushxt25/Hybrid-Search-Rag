@@ -127,6 +127,8 @@ def create_service(
     prompt_package: GroundedPromptPackage | None = None,
     provider: StubGenerationProvider | None = None,
     require_answer_citations: bool = True,
+    timing_callback=None,
+    observability_enabled: bool = True,
 ) -> tuple[GroundedAnswerService, Mock, Mock, Mock, StubGenerationProvider]:
     resolved_context = (
         assembled_context if assembled_context is not None else create_context()
@@ -159,6 +161,8 @@ def create_service(
             prompt_builder=prompt_builder,
             generation_provider=generation_provider,
             require_answer_citations=require_answer_citations,
+            timing_callback=timing_callback,
+            observability_enabled=observability_enabled,
         ),
         search_service,
         context_assembler,
@@ -453,3 +457,114 @@ def test_input_objects_are_not_mutated() -> None:
     service.answer(request)
 
     assert request == original_request
+
+
+def test_timing_callback_called_once_on_success() -> None:
+    timings = []
+    service, _, _, _, _ = create_service(timing_callback=timings.append)
+
+    service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    assert len(timings) == 1
+    timing = timings[0]
+    assert timing.retrieval_ms >= 0
+    assert timing.context_assembly_ms >= 0
+    assert timing.prompt_construction_ms >= 0
+    assert timing.generation_ms >= 0
+    assert timing.total_ms >= 0
+    stage_sum = (
+        timing.retrieval_ms
+        + timing.context_assembly_ms
+        + timing.prompt_construction_ms
+        + timing.generation_ms
+    )
+    assert timing.total_ms + 5 >= stage_sum
+
+
+def test_empty_context_timing_has_zero_generation_and_skips_provider() -> None:
+    timings = []
+    empty_context = create_context(source_count=0)
+    provider = StubGenerationProvider()
+    service, _, _, _, provider = create_service(
+        assembled_context=empty_context,
+        prompt_package=create_prompt_package(context=empty_context),
+        provider=provider,
+        timing_callback=timings.append,
+    )
+
+    service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    assert provider.calls == []
+    assert timings[0].generation_ms == 0.0
+
+
+def test_completion_log_contains_safe_metadata(caplog) -> None:
+    service, _, _, _, _ = create_service()
+
+    with caplog.at_level("INFO", logger="app.grounded_answer"):
+        service.answer(GroundedAnswerRequest(question="SECRET question?"))
+
+    record = next(
+        record
+        for record in caplog.records
+        if record.event == "grounded_answer_completed"
+    )
+    assert record.success is True
+    assert record.retrieved_result_count == 2
+    assert record.context_source_count == 1
+    assert record.context_truncated is False
+    assert record.insufficient_context is False
+    assert record.model_name == "stub-model"
+    assert record.finish_reason == "stop"
+    assert record.citation_marker_count == 1
+    assert record.retrieval_ms >= 0
+    assert record.context_assembly_ms >= 0
+    assert record.prompt_construction_ms >= 0
+    assert record.generation_ms >= 0
+    assert record.total_ms >= 0
+    log_text = caplog.text
+    assert "SECRET question" not in log_text
+    assert "Employees may work remotely" not in log_text
+    assert "system" not in log_text
+    assert "user" not in log_text
+    assert DOCUMENT_ID not in log_text
+    assert "policy.txt" not in log_text
+
+
+def test_failure_log_contains_exception_type_not_raw_message(caplog) -> None:
+    provider = Mock()
+    provider.generate.side_effect = RuntimeError("raw provider secret")
+    service, _, _, _, _ = create_service(provider=provider)
+
+    with caplog.at_level("WARNING", logger="app.grounded_answer"):
+        with pytest.raises(RuntimeError):
+            service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    record = next(
+        record for record in caplog.records if record.event == "grounded_answer_failed"
+    )
+    assert record.exception_type == "RuntimeError"
+    assert record.stage == "generation"
+    assert record.elapsed_ms >= 0
+    assert "raw provider secret" not in caplog.text
+
+
+def test_observability_disabled_suppresses_logs(caplog) -> None:
+    service, _, _, _, _ = create_service(observability_enabled=False)
+
+    with caplog.at_level("INFO", logger="app.grounded_answer"):
+        service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    assert "grounded_answer_completed" not in caplog.text
+
+    provider = Mock()
+    provider.generate.side_effect = RuntimeError("raw provider secret")
+    service, _, _, _, _ = create_service(
+        provider=provider,
+        observability_enabled=False,
+    )
+    with caplog.at_level("WARNING", logger="app.grounded_answer"):
+        with pytest.raises(RuntimeError):
+            service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    assert "grounded_answer_failed" not in caplog.text
