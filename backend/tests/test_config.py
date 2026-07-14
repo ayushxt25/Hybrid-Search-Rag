@@ -28,6 +28,18 @@ def test_context_environment_overrides(monkeypatch) -> None:
     assert settings.context_include_metadata_headers is False
 
 
+def test_prompt_environment_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("PROMPT_MAX_QUESTION_CHARACTERS", "1500")
+    monkeypatch.setenv("PROMPT_REQUIRE_CITATIONS", "false")
+    monkeypatch.setenv("PROMPT_ALLOW_GENERAL_KNOWLEDGE", "true")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.prompt_max_question_characters == 1500
+    assert settings.prompt_require_citations is False
+    assert settings.prompt_allow_general_knowledge is True
+
+
 @pytest.mark.parametrize(
     ("env_name", "env_value", "message"),
     [
@@ -44,6 +56,8 @@ def test_context_environment_overrides(monkeypatch) -> None:
         ("CONTEXT_MAX_CHARACTERS", "-1", "greater than 0"),
         ("CONTEXT_MAX_SOURCES", "0", "greater than 0"),
         ("CONTEXT_MAX_SOURCES", "-1", "greater than 0"),
+        ("PROMPT_MAX_QUESTION_CHARACTERS", "0", "greater than 0"),
+        ("PROMPT_MAX_QUESTION_CHARACTERS", "-1", "greater than 0"),
     ],
 )
 def test_hybrid_setting_validation(

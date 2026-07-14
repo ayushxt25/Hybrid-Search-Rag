@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     context_max_characters: int = Field(default=12000, gt=0)
     context_max_sources: int = Field(default=8, gt=0)
     context_include_metadata_headers: bool = True
+    prompt_max_question_characters: int = Field(default=2000, gt=0)
+    prompt_require_citations: bool = True
+    prompt_allow_general_knowledge: bool = False
 
     @field_validator("hybrid_dense_weight", "hybrid_sparse_weight")
     @classmethod

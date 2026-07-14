@@ -7,11 +7,13 @@ from app.api.dependencies import (
     get_dense_search_service,
     get_document_indexing_service,
     get_embedding_provider,
+    get_grounded_prompt_builder,
     get_hybrid_search_service,
     get_sparse_embedding_provider,
     get_sparse_search_service,
 )
 from app.context.assembler import ContextAssembler
+from app.prompting.builder import GroundedPromptBuilder
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
 from app.services.hybrid_search import HybridSearchService
@@ -27,6 +29,7 @@ def clear_dependency_caches():
     get_sparse_search_service.cache_clear()
     get_hybrid_search_service.cache_clear()
     get_context_assembler.cache_clear()
+    get_grounded_prompt_builder.cache_clear()
 
     yield
 
@@ -37,6 +40,7 @@ def clear_dependency_caches():
     get_sparse_search_service.cache_clear()
     get_hybrid_search_service.cache_clear()
     get_context_assembler.cache_clear()
+    get_grounded_prompt_builder.cache_clear()
 
 
 @patch("app.api.dependencies.SentenceTransformerEmbeddingProvider")
@@ -296,3 +300,23 @@ def test_context_assembler_is_created_and_cached(settings_factory: Mock) -> None
     assert first.max_characters == 5000
     assert first.max_sources == 4
     assert first.include_metadata_headers is False
+
+
+@patch("app.api.dependencies.get_settings")
+def test_grounded_prompt_builder_is_created_and_cached(
+    settings_factory: Mock,
+) -> None:
+    settings_factory.return_value = Mock(
+        prompt_max_question_characters=1500,
+        prompt_require_citations=False,
+        prompt_allow_general_knowledge=True,
+    )
+
+    first = get_grounded_prompt_builder()
+    second = get_grounded_prompt_builder()
+
+    assert isinstance(first, GroundedPromptBuilder)
+    assert second is first
+    assert first.max_question_characters == 1500
+    assert first.require_citations is False
+    assert first.allow_general_knowledge is True

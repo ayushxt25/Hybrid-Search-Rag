@@ -6,6 +6,7 @@ from app.embeddings.sentence_transformer import (
     SentenceTransformerEmbeddingProvider,
 )
 from app.ingestion.pipeline import DocumentIngestionPipeline
+from app.prompting.builder import GroundedPromptBuilder
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
 from app.services.hybrid_search import HybridSearchService
@@ -134,4 +135,16 @@ def get_context_assembler() -> ContextAssembler:
         max_characters=settings.context_max_characters,
         max_sources=settings.context_max_sources,
         include_metadata_headers=settings.context_include_metadata_headers,
+    )
+
+
+@lru_cache
+def get_grounded_prompt_builder() -> GroundedPromptBuilder:
+    """Return the shared grounded prompt builder."""
+    settings = get_settings()
+
+    return GroundedPromptBuilder(
+        max_question_characters=settings.prompt_max_question_characters,
+        require_citations=settings.prompt_require_citations,
+        allow_general_knowledge=settings.prompt_allow_general_knowledge,
     )
