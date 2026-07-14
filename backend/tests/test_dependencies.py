@@ -7,12 +7,16 @@ from app.api.dependencies import (
     get_dense_search_service,
     get_document_indexing_service,
     get_embedding_provider,
+    get_generation_provider,
+    get_grounded_answer_service,
     get_grounded_prompt_builder,
     get_hybrid_search_service,
     get_sparse_embedding_provider,
     get_sparse_search_service,
 )
 from app.context.assembler import ContextAssembler
+from app.generation.openai import OpenAIGenerationProvider
+from app.generation.service import GroundedAnswerService
 from app.prompting.builder import GroundedPromptBuilder
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
@@ -30,6 +34,8 @@ def clear_dependency_caches():
     get_hybrid_search_service.cache_clear()
     get_context_assembler.cache_clear()
     get_grounded_prompt_builder.cache_clear()
+    get_generation_provider.cache_clear()
+    get_grounded_answer_service.cache_clear()
 
     yield
 
@@ -41,6 +47,8 @@ def clear_dependency_caches():
     get_hybrid_search_service.cache_clear()
     get_context_assembler.cache_clear()
     get_grounded_prompt_builder.cache_clear()
+    get_generation_provider.cache_clear()
+    get_grounded_answer_service.cache_clear()
 
 
 @patch("app.api.dependencies.SentenceTransformerEmbeddingProvider")
@@ -320,3 +328,63 @@ def test_grounded_prompt_builder_is_created_and_cached(
     assert first.max_question_characters == 1500
     assert first.require_citations is False
     assert first.allow_general_knowledge is True
+
+
+@patch("app.api.dependencies.OpenAIGenerationProvider")
+@patch("app.api.dependencies.get_settings")
+def test_generation_provider_is_created_and_cached(
+    settings_factory: Mock,
+    provider_class: Mock,
+) -> None:
+    settings_factory.return_value = Mock(
+        openai_api_key="test-key",
+        openai_generation_model="gpt-test",
+        openai_base_url="https://example.test/v1",
+    )
+    provider = Mock(spec=OpenAIGenerationProvider)
+    provider_class.return_value = provider
+
+    first = get_generation_provider()
+    second = get_generation_provider()
+
+    assert first is provider
+    assert second is provider
+    provider_class.assert_called_once_with(
+        api_key="test-key",
+        model_name="gpt-test",
+        base_url="https://example.test/v1",
+    )
+
+
+@patch("app.api.dependencies.get_generation_provider")
+@patch("app.api.dependencies.get_grounded_prompt_builder")
+@patch("app.api.dependencies.get_context_assembler")
+@patch("app.api.dependencies.get_hybrid_search_service")
+@patch("app.api.dependencies.get_settings")
+def test_grounded_answer_service_is_created_and_cached(
+    settings_factory: Mock,
+    search_factory: Mock,
+    assembler_factory: Mock,
+    prompt_builder_factory: Mock,
+    provider_factory: Mock,
+) -> None:
+    settings_factory.return_value = Mock(generation_require_answer_citations=False)
+    search_service = Mock()
+    assembler = Mock()
+    prompt_builder = Mock()
+    provider = Mock()
+    search_factory.return_value = search_service
+    assembler_factory.return_value = assembler
+    prompt_builder_factory.return_value = prompt_builder
+    provider_factory.return_value = provider
+
+    first = get_grounded_answer_service()
+    second = get_grounded_answer_service()
+
+    assert isinstance(first, GroundedAnswerService)
+    assert second is first
+    assert first.hybrid_search_service is search_service
+    assert first.context_assembler is assembler
+    assert first.prompt_builder is prompt_builder
+    assert first.generation_provider is provider
+    assert first.require_answer_citations is False

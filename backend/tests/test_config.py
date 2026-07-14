@@ -42,10 +42,24 @@ def test_prompt_environment_overrides(monkeypatch) -> None:
 
 def test_generation_environment_overrides(monkeypatch) -> None:
     monkeypatch.setenv("GENERATION_REQUIRE_ANSWER_CITATIONS", "false")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("OPENAI_GENERATION_MODEL", "gpt-test")
 
     settings = Settings(_env_file=None)
 
     assert settings.generation_require_answer_citations is False
+    assert settings.openai_api_key == "test-key"
+    assert settings.openai_base_url == "https://example.test/v1"
+    assert settings.openai_generation_model == "gpt-test"
+
+
+def test_blank_openai_base_url_is_treated_as_unset(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_BASE_URL", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.openai_base_url is None
 
 
 @pytest.mark.parametrize(

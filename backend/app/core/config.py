@@ -27,6 +27,17 @@ class Settings(BaseSettings):
     prompt_require_citations: bool = True
     prompt_allow_general_knowledge: bool = False
     generation_require_answer_citations: bool = True
+    openai_api_key: str = ""
+    openai_base_url: str | None = None
+    openai_generation_model: str = "gpt-4.1-mini"
+
+    @field_validator("openai_base_url", mode="before")
+    @classmethod
+    def normalize_blank_openai_base_url(cls, value: str | None) -> str | None:
+        if isinstance(value, str) and not value.strip():
+            return None
+
+        return value
 
     @field_validator("hybrid_dense_weight", "hybrid_sparse_weight")
     @classmethod

@@ -5,6 +5,8 @@ from app.core.config import get_settings
 from app.embeddings.sentence_transformer import (
     SentenceTransformerEmbeddingProvider,
 )
+from app.generation.openai import OpenAIGenerationProvider
+from app.generation.service import GroundedAnswerService
 from app.ingestion.pipeline import DocumentIngestionPipeline
 from app.prompting.builder import GroundedPromptBuilder
 from app.services.dense_search import DenseSearchService
@@ -25,6 +27,18 @@ def get_embedding_provider() -> SentenceTransformerEmbeddingProvider:
 def get_sparse_embedding_provider() -> HashedLexicalSparseProvider:
     """Return the shared sparse lexical embedding provider."""
     return HashedLexicalSparseProvider()
+
+
+@lru_cache
+def get_generation_provider() -> OpenAIGenerationProvider:
+    """Return the shared production generation provider."""
+    settings = get_settings()
+
+    return OpenAIGenerationProvider(
+        api_key=settings.openai_api_key,
+        model_name=settings.openai_generation_model,
+        base_url=settings.openai_base_url,
+    )
 
 
 @lru_cache
@@ -147,4 +161,18 @@ def get_grounded_prompt_builder() -> GroundedPromptBuilder:
         max_question_characters=settings.prompt_max_question_characters,
         require_citations=settings.prompt_require_citations,
         allow_general_knowledge=settings.prompt_allow_general_knowledge,
+    )
+
+
+@lru_cache
+def get_grounded_answer_service() -> GroundedAnswerService:
+    """Return the shared grounded-answer service."""
+    settings = get_settings()
+
+    return GroundedAnswerService(
+        hybrid_search_service=get_hybrid_search_service(),
+        context_assembler=get_context_assembler(),
+        prompt_builder=get_grounded_prompt_builder(),
+        generation_provider=get_generation_provider(),
+        require_answer_citations=settings.generation_require_answer_citations,
     )

@@ -46,3 +46,16 @@ Generated answers reject unknown or malformed source markers before being
 returned. This validation checks marker syntax and source availability only; it
 does not yet prove that a cited sentence is factually entailed by the cited
 source. Factual citation verification remains a later stage.
+
+## Grounded Answer API
+
+`POST /api/v1/answers/grounded` accepts `question`, `limit`,
+`candidate_limit`, and optional `document_id`, then returns a grounded answer
+with structured `citations`, emitted `citation_markers`, context metadata, and
+model metadata. If retrieval finds no evidence, the service returns the
+deterministic insufficient-context answer without invoking OpenAI.
+
+`OPENAI_API_KEY` is required only when generation is actually invoked. Provider
+and network errors are returned with sanitized API details; prompts, retrieved
+context, keys, raw provider responses, and raw provider exception messages are
+not exposed. Streaming is not implemented.
