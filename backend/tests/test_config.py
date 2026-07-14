@@ -45,6 +45,8 @@ def test_generation_environment_overrides(monkeypatch) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://example.test/v1")
     monkeypatch.setenv("OPENAI_GENERATION_MODEL", "gpt-test")
+    monkeypatch.setenv("OPENAI_GENERATION_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setenv("OPENAI_GENERATION_MAX_RETRIES", "4")
 
     settings = Settings(_env_file=None)
 
@@ -52,6 +54,8 @@ def test_generation_environment_overrides(monkeypatch) -> None:
     assert settings.openai_api_key == "test-key"
     assert settings.openai_base_url == "https://example.test/v1"
     assert settings.openai_generation_model == "gpt-test"
+    assert settings.openai_generation_timeout_seconds == 12.5
+    assert settings.openai_generation_max_retries == 4
 
 
 def test_blank_openai_base_url_is_treated_as_unset(monkeypatch) -> None:
@@ -60,6 +64,14 @@ def test_blank_openai_base_url_is_treated_as_unset(monkeypatch) -> None:
     settings = Settings(_env_file=None)
 
     assert settings.openai_base_url is None
+
+
+def test_zero_openai_generation_max_retries_is_allowed(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_GENERATION_MAX_RETRIES", "0")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.openai_generation_max_retries == 0
 
 
 @pytest.mark.parametrize(
@@ -80,6 +92,9 @@ def test_blank_openai_base_url_is_treated_as_unset(monkeypatch) -> None:
         ("CONTEXT_MAX_SOURCES", "-1", "greater than 0"),
         ("PROMPT_MAX_QUESTION_CHARACTERS", "0", "greater than 0"),
         ("PROMPT_MAX_QUESTION_CHARACTERS", "-1", "greater than 0"),
+        ("OPENAI_GENERATION_TIMEOUT_SECONDS", "0", "greater than 0"),
+        ("OPENAI_GENERATION_TIMEOUT_SECONDS", "nan", "openai timeout must be finite"),
+        ("OPENAI_GENERATION_MAX_RETRIES", "-1", "greater than or equal to 0"),
     ],
 )
 def test_hybrid_setting_validation(

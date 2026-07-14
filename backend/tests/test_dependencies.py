@@ -340,6 +340,8 @@ def test_generation_provider_is_created_and_cached(
         openai_api_key="test-key",
         openai_generation_model="gpt-test",
         openai_base_url="https://example.test/v1",
+        openai_generation_timeout_seconds=12.5,
+        openai_generation_max_retries=4,
     )
     provider = Mock(spec=OpenAIGenerationProvider)
     provider_class.return_value = provider
@@ -353,7 +355,16 @@ def test_generation_provider_is_created_and_cached(
         api_key="test-key",
         model_name="gpt-test",
         base_url="https://example.test/v1",
+        timeout_seconds=12.5,
+        max_retries=4,
     )
+
+
+@patch("app.api.dependencies.OpenAIGenerationProvider")
+def test_openai_provider_is_not_created_at_module_import(
+    provider_class: Mock,
+) -> None:
+    provider_class.assert_not_called()
 
 
 @patch("app.api.dependencies.get_generation_provider")

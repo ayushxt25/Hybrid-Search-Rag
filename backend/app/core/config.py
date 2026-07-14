@@ -30,12 +30,27 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_base_url: str | None = None
     openai_generation_model: str = "gpt-4.1-mini"
+    openai_generation_timeout_seconds: float = Field(default=30.0, gt=0)
+    openai_generation_max_retries: int = Field(default=2, ge=0)
 
     @field_validator("openai_base_url", mode="before")
     @classmethod
     def normalize_blank_openai_base_url(cls, value: str | None) -> str | None:
         if isinstance(value, str) and not value.strip():
             return None
+
+        return value
+
+    @field_validator("openai_generation_timeout_seconds", mode="before")
+    @classmethod
+    def validate_openai_timeout(cls, value: object) -> object:
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            return value
+
+        if not isfinite(numeric_value):
+            raise ValueError("openai timeout must be finite.")
 
         return value
 

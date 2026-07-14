@@ -58,7 +58,10 @@ deterministic insufficient-context answer without invoking OpenAI.
 `OPENAI_API_KEY` is required only when generation is actually invoked. Provider
 and network errors are returned with sanitized API details; prompts, retrieved
 context, keys, raw provider responses, and raw provider exception messages are
-not exposed. Streaming is not implemented.
+not exposed. OpenAI SDK timeout is application-configurable, SDK retries default
+to `2`, and setting retries to `0` disables SDK retries. Authentication failures
+and local validation failures are not manually retried, and there is no custom
+retry loop beyond the official SDK behavior. Streaming is not implemented.
 
 Run `python backend/scripts/grounded_answer_smoke_test.py` for a local
 grounded-answer smoke test. Docker/Qdrant must already be running. The script

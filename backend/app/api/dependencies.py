@@ -38,6 +38,8 @@ def get_generation_provider() -> OpenAIGenerationProvider:
         api_key=settings.openai_api_key,
         model_name=settings.openai_generation_model,
         base_url=settings.openai_base_url,
+        timeout_seconds=settings.openai_generation_timeout_seconds,
+        max_retries=settings.openai_generation_max_retries,
     )
 
 
