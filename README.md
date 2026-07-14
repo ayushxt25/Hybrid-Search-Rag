@@ -59,3 +59,10 @@ deterministic insufficient-context answer without invoking OpenAI.
 and network errors are returned with sanitized API details; prompts, retrieved
 context, keys, raw provider responses, and raw provider exception messages are
 not exposed. Streaming is not implemented.
+
+Run `python backend/scripts/grounded_answer_smoke_test.py` for a local
+grounded-answer smoke test. Docker/Qdrant must already be running. The script
+uses the real local ingestion, embedding, Qdrant retrieval, context assembly,
+prompting, answer route, and citation validation pipeline, but replaces OpenAI
+with a deterministic in-process stub, so no API key or generation credits are
+used. Success validates citation markers and source metadata.
