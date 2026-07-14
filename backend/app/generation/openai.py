@@ -59,6 +59,8 @@ class OpenAIGenerationProvider(GenerationProvider):
         self.max_output_tokens = max_output_tokens
         self.max_retries = max_retries
         self.client = client
+        self._owns_client = client is None
+        self._closed = False
 
     def generate(
         self,
@@ -108,3 +110,13 @@ class OpenAIGenerationProvider(GenerationProvider):
             )
 
         return self.client
+
+    def close(self) -> None:
+        if self._closed:
+            return
+
+        self._closed = True
+        if self._owns_client and self.client is not None:
+            close = getattr(self.client, "close", None)
+            if callable(close):
+                close()

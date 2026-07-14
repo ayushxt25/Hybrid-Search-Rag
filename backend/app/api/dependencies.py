@@ -1,4 +1,6 @@
+import logging
 from functools import lru_cache
+from typing import Protocol
 
 from app.context.assembler import ContextAssembler
 from app.core.config import get_settings
@@ -16,6 +18,25 @@ from app.services.hybrid_search import HybridSearchService
 from app.services.sparse_search import SparseSearchService
 from app.sparse.hashed_lexical import HashedLexicalSparseProvider
 from app.vectorstore.qdrant import QdrantVectorStore
+
+logger = logging.getLogger("app.dependencies")
+
+
+class Closeable(Protocol):
+    def close(self) -> None: ...
+
+
+_registered_closeables: list[Closeable] = []
+_registered_closeable_ids: set[int] = set()
+
+
+def _register_closeable(resource: Closeable) -> Closeable:
+    resource_id = id(resource)
+    if resource_id not in _registered_closeable_ids:
+        _registered_closeables.append(resource)
+        _registered_closeable_ids.add(resource_id)
+
+    return resource
 
 
 @lru_cache
@@ -35,12 +56,14 @@ def get_generation_provider() -> OpenAIGenerationProvider:
     """Return the shared production generation provider."""
     settings = get_settings()
 
-    return OpenAIGenerationProvider(
-        api_key=settings.openai_api_key,
-        model_name=settings.openai_generation_model,
-        base_url=settings.openai_base_url,
-        timeout_seconds=settings.openai_generation_timeout_seconds,
-        max_retries=settings.openai_generation_max_retries,
+    return _register_closeable(
+        OpenAIGenerationProvider(
+            api_key=settings.openai_api_key,
+            model_name=settings.openai_generation_model,
+            base_url=settings.openai_base_url,
+            timeout_seconds=settings.openai_generation_timeout_seconds,
+            max_retries=settings.openai_generation_max_retries,
+        )
     )
 
 
@@ -61,11 +84,13 @@ def get_document_indexing_service() -> DocumentIndexingService:
         chunk_overlap=40,
     )
 
-    vector_store = QdrantVectorStore(
-        url=settings.qdrant_url,
-        collection_name=settings.qdrant_hybrid_collection_name,
-        vector_dimensions=settings.dense_embedding_dimensions,
-        sparse_enabled=True,
+    vector_store = _register_closeable(
+        QdrantVectorStore(
+            url=settings.qdrant_url,
+            collection_name=settings.qdrant_hybrid_collection_name,
+            vector_dimensions=settings.dense_embedding_dimensions,
+            sparse_enabled=True,
+        )
     )
 
     return DocumentIndexingService(
@@ -87,11 +112,13 @@ def get_dense_search_service() -> DenseSearchService:
             "Configured dense embedding dimensions do not match the embedding model."
         )
 
-    vector_store = QdrantVectorStore(
-        url=settings.qdrant_url,
-        collection_name=settings.qdrant_hybrid_collection_name,
-        vector_dimensions=settings.dense_embedding_dimensions,
-        sparse_enabled=True,
+    vector_store = _register_closeable(
+        QdrantVectorStore(
+            url=settings.qdrant_url,
+            collection_name=settings.qdrant_hybrid_collection_name,
+            vector_dimensions=settings.dense_embedding_dimensions,
+            sparse_enabled=True,
+        )
     )
 
     return DenseSearchService(
@@ -106,11 +133,13 @@ def get_sparse_search_service() -> SparseSearchService:
     settings = get_settings()
     sparse_embedding_provider = get_sparse_embedding_provider()
 
-    vector_store = QdrantVectorStore(
-        url=settings.qdrant_url,
-        collection_name=settings.qdrant_hybrid_collection_name,
-        vector_dimensions=settings.dense_embedding_dimensions,
-        sparse_enabled=True,
+    vector_store = _register_closeable(
+        QdrantVectorStore(
+            url=settings.qdrant_url,
+            collection_name=settings.qdrant_hybrid_collection_name,
+            vector_dimensions=settings.dense_embedding_dimensions,
+            sparse_enabled=True,
+        )
     )
 
     return SparseSearchService(
@@ -126,11 +155,13 @@ def get_hybrid_search_service() -> HybridSearchService:
     embedding_provider = get_embedding_provider()
     sparse_embedding_provider = get_sparse_embedding_provider()
 
-    vector_store = QdrantVectorStore(
-        url=settings.qdrant_url,
-        collection_name=settings.qdrant_hybrid_collection_name,
-        vector_dimensions=settings.dense_embedding_dimensions,
-        sparse_enabled=True,
+    vector_store = _register_closeable(
+        QdrantVectorStore(
+            url=settings.qdrant_url,
+            collection_name=settings.qdrant_hybrid_collection_name,
+            vector_dimensions=settings.dense_embedding_dimensions,
+            sparse_enabled=True,
+        )
     )
 
     return HybridSearchService(
@@ -190,3 +221,38 @@ def get_grounded_answer_rate_limiter() -> InMemoryFixedWindowRateLimiter:
         limit=settings.grounded_answer_rate_limit_requests,
         window_seconds=settings.grounded_answer_rate_limit_window_seconds,
     )
+
+
+def shutdown_dependencies() -> None:
+    errors: list[Exception] = []
+
+    for resource in reversed(_registered_closeables):
+        try:
+            resource.close()
+        except Exception as error:
+            errors.append(error)
+            logger.error(
+                "dependency_shutdown_failed",
+                extra={
+                    "event": "dependency_shutdown_failed",
+                    "resource_type": type(resource).__name__,
+                    "exception_type": type(error).__name__,
+                },
+            )
+
+    _registered_closeables.clear()
+    _registered_closeable_ids.clear()
+    get_embedding_provider.cache_clear()
+    get_sparse_embedding_provider.cache_clear()
+    get_document_indexing_service.cache_clear()
+    get_dense_search_service.cache_clear()
+    get_sparse_search_service.cache_clear()
+    get_hybrid_search_service.cache_clear()
+    get_context_assembler.cache_clear()
+    get_grounded_prompt_builder.cache_clear()
+    get_generation_provider.cache_clear()
+    get_grounded_answer_service.cache_clear()
+    get_grounded_answer_rate_limiter.cache_clear()
+    get_settings.cache_clear()
+    if errors:
+        return

@@ -48,8 +48,20 @@ class QdrantVectorStore:
 
         self.collection_name = normalized_collection_name
         self.vector_dimensions = vector_dimensions
+        self._owns_client = client is None
+        self._closed = False
         self.client = client if client is not None else QdrantClient(url=url)
         self.sparse_enabled = sparse_enabled
+
+    def close(self) -> None:
+        if self._closed:
+            return
+
+        self._closed = True
+        if self._owns_client:
+            close = getattr(self.client, "close", None)
+            if callable(close):
+                close()
 
     def ensure_collection(self) -> None:
         """Create the configured collection when it does not exist."""

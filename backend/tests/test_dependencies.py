@@ -14,6 +14,7 @@ from app.api.dependencies import (
     get_hybrid_search_service,
     get_sparse_embedding_provider,
     get_sparse_search_service,
+    shutdown_dependencies,
 )
 from app.context.assembler import ContextAssembler
 from app.generation.openai import OpenAIGenerationProvider
@@ -28,31 +29,11 @@ from app.services.sparse_search import SparseSearchService
 
 @pytest.fixture(autouse=True)
 def clear_dependency_caches():
-    get_embedding_provider.cache_clear()
-    get_sparse_embedding_provider.cache_clear()
-    get_document_indexing_service.cache_clear()
-    get_dense_search_service.cache_clear()
-    get_sparse_search_service.cache_clear()
-    get_hybrid_search_service.cache_clear()
-    get_context_assembler.cache_clear()
-    get_grounded_prompt_builder.cache_clear()
-    get_generation_provider.cache_clear()
-    get_grounded_answer_service.cache_clear()
-    get_grounded_answer_rate_limiter.cache_clear()
+    shutdown_dependencies()
 
     yield
 
-    get_embedding_provider.cache_clear()
-    get_sparse_embedding_provider.cache_clear()
-    get_document_indexing_service.cache_clear()
-    get_dense_search_service.cache_clear()
-    get_sparse_search_service.cache_clear()
-    get_hybrid_search_service.cache_clear()
-    get_context_assembler.cache_clear()
-    get_grounded_prompt_builder.cache_clear()
-    get_generation_provider.cache_clear()
-    get_grounded_answer_service.cache_clear()
-    get_grounded_answer_rate_limiter.cache_clear()
+    shutdown_dependencies()
 
 
 @patch("app.api.dependencies.SentenceTransformerEmbeddingProvider")

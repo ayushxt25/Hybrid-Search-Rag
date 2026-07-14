@@ -88,3 +88,11 @@ questions, document/context text, answers, prompts, identifiers, secrets, and ra
 provider responses. Observability logs can be disabled with
 `OBSERVABILITY_ENABLED=false`; timings are internal and are not exposed in API
 responses.
+
+## Dependency Lifecycle
+
+Heavy dependencies remain lazy and are not created during application startup.
+Owned external clients, such as internally constructed Qdrant and OpenAI
+clients, are closed during FastAPI shutdown; injected clients remain
+caller-owned. Cached dependencies are cleared after shutdown, and repeated
+shutdown calls are safe.
