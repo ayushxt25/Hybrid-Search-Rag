@@ -34,3 +34,15 @@ and returns a deterministic insufficient-context answer. Character counts are
 used until provider token accounting exists. Citation sources are returned
 structurally with the answer, but citation parsing and correctness checking are
 future work. No external generation provider is connected yet.
+
+## Citation Marker Validation
+
+Grounded answer results distinguish structured citations from emitted citation
+markers. Structured citations list the available evidence sources supplied to
+the model, while `citation_markers` records the `[Source N]` references that the
+model actually emitted in the answer text.
+
+Generated answers reject unknown or malformed source markers before being
+returned. This validation checks marker syntax and source availability only; it
+does not yet prove that a cited sentence is factually entailed by the cited
+source. Factual citation verification remains a later stage.

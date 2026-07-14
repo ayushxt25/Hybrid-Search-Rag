@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     prompt_max_question_characters: int = Field(default=2000, gt=0)
     prompt_require_citations: bool = True
     prompt_allow_general_knowledge: bool = False
+    generation_require_answer_citations: bool = True
 
     @field_validator("hybrid_dense_weight", "hybrid_sparse_weight")
     @classmethod

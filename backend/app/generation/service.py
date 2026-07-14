@@ -1,6 +1,7 @@
 from app.context.assembler import ContextAssembler
 from app.context.models import AssembledContext, ContextSource
 from app.generation.base import GenerationProvider
+from app.generation.citations import validate_citation_markers
 from app.generation.models import (
     AnswerCitation,
     GenerationOutput,
@@ -27,11 +28,16 @@ class GroundedAnswerService:
         context_assembler: ContextAssembler,
         prompt_builder: GroundedPromptBuilder,
         generation_provider: GenerationProvider,
+        require_answer_citations: bool = True,
     ) -> None:
+        if not isinstance(require_answer_citations, bool):
+            raise ValueError("require_answer_citations must be a boolean.")
+
         self.hybrid_search_service = hybrid_search_service
         self.context_assembler = context_assembler
         self.prompt_builder = prompt_builder
         self.generation_provider = generation_provider
+        self.require_answer_citations = require_answer_citations
 
     def answer(self, request: GroundedAnswerRequest) -> GroundedAnswerResult:
         """Answer a grounded question using the configured generation provider."""
@@ -72,12 +78,18 @@ class GroundedAnswerService:
             output=generation_output,
             prompt_package=prompt_package,
         )
+        citation_markers = validate_citation_markers(
+            text=generation_output.text,
+            available_source_numbers=[citation.source_number for citation in citations],
+            require_citations=self.require_answer_citations,
+        )
 
         return GroundedAnswerResult(
             question=normalized_question,
             answer=generation_output.text,
             model_name=generation_output.model_name,
             citations=citations,
+            citation_markers=citation_markers,
             retrieved_result_count=hybrid_response.result_count,
             context_source_count=assembled_context.source_count,
             context_truncated=assembled_context.truncated,
@@ -101,6 +113,7 @@ class GroundedAnswerService:
             answer=INSUFFICIENT_CONTEXT_ANSWER,
             model_name="not-invoked",
             citations=citations,
+            citation_markers=[],
             retrieved_result_count=retrieved_result_count,
             context_source_count=assembled_context.source_count,
             context_truncated=assembled_context.truncated,

@@ -113,6 +113,7 @@ def test_grounded_answer_result_valid() -> None:
         answer="Use the policy.",
         model_name="test-model",
         citations=[create_citation()],
+        citation_markers=[1, 1],
         retrieved_result_count=2,
         context_source_count=1,
         context_truncated=False,
@@ -123,6 +124,7 @@ def test_grounded_answer_result_valid() -> None:
     )
 
     assert result.context_source_count == 1
+    assert result.citation_markers == [1, 1]
 
 
 @pytest.mark.parametrize(
@@ -131,15 +133,26 @@ def test_grounded_answer_result_valid() -> None:
         ({"question": "   "}, "value cannot be blank"),
         ({"answer": "   "}, "value cannot be blank"),
         ({"model_name": "   "}, "value cannot be blank"),
+        ({"citation_markers": [0]}, "citation_markers"),
         ({"context_source_count": 2}, "context_source_count must equal"),
         ({"output_characters": 999}, "output_characters must equal len"),
         (
             {
                 "context_source_count": 0,
                 "citations": [],
+                "citation_markers": [],
                 "insufficient_context": False,
             },
             "insufficient_context",
+        ),
+        (
+            {
+                "context_source_count": 0,
+                "citations": [],
+                "citation_markers": [1],
+                "insufficient_context": True,
+            },
+            "citation_markers must be empty",
         ),
     ],
 )
@@ -152,6 +165,7 @@ def test_grounded_answer_result_rejects_invalid_values(
         "answer": "Use the policy.",
         "model_name": "test-model",
         "citations": [create_citation()],
+        "citation_markers": [1],
         "retrieved_result_count": 2,
         "context_source_count": 1,
         "context_truncated": False,

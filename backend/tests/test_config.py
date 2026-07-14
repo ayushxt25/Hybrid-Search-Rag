@@ -40,6 +40,14 @@ def test_prompt_environment_overrides(monkeypatch) -> None:
     assert settings.prompt_allow_general_knowledge is True
 
 
+def test_generation_environment_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("GENERATION_REQUIRE_ANSWER_CITATIONS", "false")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.generation_require_answer_citations is False
+
+
 @pytest.mark.parametrize(
     ("env_name", "env_value", "message"),
     [

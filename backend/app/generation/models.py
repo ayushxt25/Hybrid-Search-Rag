@@ -78,6 +78,7 @@ class GroundedAnswerResult(BaseModel):
     answer: str = Field(min_length=1)
     model_name: str = Field(min_length=1)
     citations: list[AnswerCitation]
+    citation_markers: list[int]
     retrieved_result_count: int = Field(ge=0)
     context_source_count: int = Field(ge=0)
     context_truncated: bool
@@ -102,6 +103,14 @@ class GroundedAnswerResult(BaseModel):
 
         return value
 
+    @field_validator("citation_markers")
+    @classmethod
+    def validate_citation_markers(cls, value: list[int]) -> list[int]:
+        if any(marker <= 0 for marker in value):
+            raise ValueError("citation_markers must contain positive values.")
+
+        return value
+
     @model_validator(mode="after")
     def validate_derived_fields(self) -> Self:
         if self.context_source_count != len(self.citations):
@@ -113,6 +122,11 @@ class GroundedAnswerResult(BaseModel):
         if self.context_source_count == 0 and not self.insufficient_context:
             raise ValueError(
                 "insufficient_context must be true when context_source_count is zero."
+            )
+
+        if self.insufficient_context and self.citation_markers:
+            raise ValueError(
+                "citation_markers must be empty when insufficient_context is true."
             )
 
         return self

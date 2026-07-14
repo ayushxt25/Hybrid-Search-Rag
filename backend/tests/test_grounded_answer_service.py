@@ -126,6 +126,7 @@ def create_service(
     assembled_context: AssembledContext | None = None,
     prompt_package: GroundedPromptPackage | None = None,
     provider: StubGenerationProvider | None = None,
+    require_answer_citations: bool = True,
 ) -> tuple[GroundedAnswerService, Mock, Mock, Mock, StubGenerationProvider]:
     resolved_context = (
         assembled_context if assembled_context is not None else create_context()
@@ -157,6 +158,7 @@ def create_service(
             context_assembler=context_assembler,
             prompt_builder=prompt_builder,
             generation_provider=generation_provider,
+            require_answer_citations=require_answer_citations,
         ),
         search_service,
         context_assembler,
@@ -201,6 +203,7 @@ def test_answer_orchestrates_non_empty_context_flow() -> None:
     assert result.input_characters == len("system") + len("user")
     assert result.output_characters == len(result.answer)
     assert result.finish_reason == "stop"
+    assert result.citation_markers == [1]
 
 
 def test_citations_are_copied_in_source_order() -> None:
@@ -223,6 +226,95 @@ def test_citations_are_copied_in_source_order() -> None:
     assert result.citations[0].heading == "Heading 1"
     assert result.citations[0].page_number == 1
     assert result.context_truncated is True
+
+
+def test_valid_citation_markers_are_returned() -> None:
+    answer = "Use policy A. [Source 1] Use policy B. [Source 2]"
+    provider = StubGenerationProvider(
+        GenerationOutput(
+            text=answer,
+            model_name="stub-model",
+            input_characters=len("system") + len("user"),
+            output_characters=len(answer),
+        )
+    )
+    service, _, _, _, _ = create_service(
+        assembled_context=create_context(source_count=2),
+        provider=provider,
+    )
+
+    result = service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    assert result.citation_markers == [1, 2]
+
+
+def test_repeated_citation_markers_are_preserved() -> None:
+    answer = "Use the policy. [Source 1] It applies. [Source 1]"
+    provider = StubGenerationProvider(
+        GenerationOutput(
+            text=answer,
+            model_name="stub-model",
+            input_characters=len("system") + len("user"),
+            output_characters=len(answer),
+        )
+    )
+    service, _, _, _, _ = create_service(provider=provider)
+
+    result = service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    assert result.citation_markers == [1, 1]
+
+
+def test_unknown_citation_marker_causes_failure() -> None:
+    answer = "Use the policy. [Source 2]"
+    provider = StubGenerationProvider(
+        GenerationOutput(
+            text=answer,
+            model_name="stub-model",
+            input_characters=len("system") + len("user"),
+            output_characters=len(answer),
+        )
+    )
+    service, _, _, _, _ = create_service(provider=provider)
+
+    with pytest.raises(ValueError, match="unavailable source"):
+        service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+
+def test_missing_citation_causes_failure_when_required() -> None:
+    answer = "Use the policy."
+    provider = StubGenerationProvider(
+        GenerationOutput(
+            text=answer,
+            model_name="stub-model",
+            input_characters=len("system") + len("user"),
+            output_characters=len(answer),
+        )
+    )
+    service, _, _, _, _ = create_service(provider=provider)
+
+    with pytest.raises(ValueError, match="at least one citation"):
+        service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+
+def test_missing_citation_allowed_when_requirement_disabled() -> None:
+    answer = "Use the policy."
+    provider = StubGenerationProvider(
+        GenerationOutput(
+            text=answer,
+            model_name="stub-model",
+            input_characters=len("system") + len("user"),
+            output_characters=len(answer),
+        )
+    )
+    service, _, _, _, _ = create_service(
+        provider=provider,
+        require_answer_citations=False,
+    )
+
+    result = service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    assert result.citation_markers == []
 
 
 def test_empty_retrieval_skips_generation_provider() -> None:
@@ -252,6 +344,24 @@ def test_empty_retrieval_skips_generation_provider() -> None:
     assert result.insufficient_context is True
     assert result.context_source_count == 0
     assert result.citations == []
+    assert result.citation_markers == []
+
+
+def test_provider_output_is_not_silently_modified() -> None:
+    answer = "Use the policy. [Source 1]"
+    provider = StubGenerationProvider(
+        GenerationOutput(
+            text=answer,
+            model_name="stub-model",
+            input_characters=len("system") + len("user"),
+            output_characters=len(answer),
+        )
+    )
+    service, _, _, _, _ = create_service(provider=provider)
+
+    result = service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    assert result.answer == answer
 
 
 def test_provider_input_character_mismatch_is_rejected() -> None:
