@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
-from app.api.dependencies import get_document_indexing_service
+from app.api.dependencies import get_document_indexing_service, require_api_key
 from app.core.config import get_settings
 from app.ingestion.exceptions import (
     CorruptedDocumentError,
@@ -45,6 +45,7 @@ SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
 )
 async def ingest_document(
     file: UploadFile,
+    _: Annotated[None, Depends(require_api_key)],
     indexing_service: Annotated[
         DocumentIndexingService,
         Depends(get_document_indexing_service),

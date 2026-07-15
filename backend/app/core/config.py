@@ -1,7 +1,8 @@
+import re
 from functools import lru_cache
 from math import isfinite
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +23,10 @@ class Settings(BaseSettings):
     cors_allow_credentials: bool = False
     max_json_request_bytes: int = Field(default=262144, gt=0)
     max_document_upload_bytes: int = Field(default=10485760, gt=0)
+    api_auth_enabled: bool = False
+    api_auth_key_sha256: str | None = None
+    api_auth_header_name: str = "X-API-Key"
+    api_auth_protect_search: bool = True
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection_name: str = "internal_document_chunks"
@@ -121,6 +126,39 @@ class Settings(BaseSettings):
             raise ValueError("wildcard CORS origin cannot allow credentials.")
 
         return value
+
+    @field_validator("api_auth_key_sha256")
+    @classmethod
+    def validate_api_auth_digest(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+
+        normalized_value = value.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", normalized_value):
+            raise ValueError("api_auth_key_sha256 must be a SHA-256 hex digest.")
+
+        return normalized_value
+
+    @field_validator("api_auth_header_name")
+    @classmethod
+    def validate_api_auth_header_name(cls, value: str) -> str:
+        normalized_value = value.strip()
+        if not normalized_value:
+            raise ValueError("api_auth_header_name cannot be blank.")
+
+        if not re.fullmatch(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", normalized_value):
+            raise ValueError("api_auth_header_name must be a valid HTTP token.")
+
+        return normalized_value
+
+    @model_validator(mode="after")
+    def validate_api_auth_configuration(self) -> "Settings":
+        if self.api_auth_enabled and self.api_auth_key_sha256 is None:
+            raise ValueError(
+                "api_auth_key_sha256 is required when api_auth_enabled is true."
+            )
+
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",

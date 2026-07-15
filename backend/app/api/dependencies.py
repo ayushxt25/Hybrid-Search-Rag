@@ -2,6 +2,8 @@ import logging
 from functools import lru_cache
 from typing import Protocol
 
+from fastapi import HTTPException, Request, status
+
 from app.context.assembler import ContextAssembler
 from app.core.config import get_settings
 from app.embeddings.sentence_transformer import (
@@ -11,8 +13,10 @@ from app.generation.openai import OpenAIGenerationProvider
 from app.generation.service import GroundedAnswerService
 from app.health.service import ReadinessService
 from app.ingestion.pipeline import DocumentIngestionPipeline
+from app.observability.request_context import get_request_id
 from app.prompting.builder import GroundedPromptBuilder
 from app.rate_limit.in_memory import InMemoryFixedWindowRateLimiter
+from app.security.api_key import ApiKeyAuthenticator
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
 from app.services.hybrid_search import HybridSearchService
@@ -21,6 +25,7 @@ from app.sparse.hashed_lexical import HashedLexicalSparseProvider
 from app.vectorstore.qdrant import QdrantVectorStore
 
 logger = logging.getLogger("app.dependencies")
+auth_logger = logging.getLogger("app.security")
 
 
 class Closeable(Protocol):
@@ -225,6 +230,58 @@ def get_grounded_answer_rate_limiter() -> InMemoryFixedWindowRateLimiter:
 
 
 @lru_cache
+def get_api_key_authenticator() -> ApiKeyAuthenticator | None:
+    settings = get_settings()
+    if not settings.api_auth_enabled:
+        return None
+
+    return ApiKeyAuthenticator(settings.api_auth_key_sha256 or "")
+
+
+def _reject_authentication(request: Request) -> None:
+    settings = get_settings()
+    if settings.observability_enabled:
+        route = request.scope.get("route")
+        route_label = getattr(route, "path", "unknown")
+        auth_logger.warning(
+            "authentication_rejected",
+            extra={
+                "event": "authentication_rejected",
+                "request_id": get_request_id(),
+                "route": route_label,
+                "method": request.method,
+                "status_code": status.HTTP_401_UNAUTHORIZED,
+            },
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Valid API credentials are required.",
+        headers={"WWW-Authenticate": "ApiKey"},
+    )
+
+
+def require_api_key(request: Request) -> None:
+    settings = get_settings()
+    if not settings.api_auth_enabled:
+        return
+
+    authenticator = get_api_key_authenticator()
+    if authenticator is None:
+        _reject_authentication(request)
+
+    provided_key = request.headers.get(settings.api_auth_header_name)
+    if not authenticator.authenticate(provided_key):
+        _reject_authentication(request)
+
+
+def require_search_api_key(request: Request) -> None:
+    settings = get_settings()
+    if settings.api_auth_enabled and settings.api_auth_protect_search:
+        require_api_key(request)
+
+
+@lru_cache
 def get_readiness_qdrant_vector_store() -> QdrantVectorStore:
     """Return the shared lightweight Qdrant readiness checker."""
     settings = get_settings()
@@ -279,6 +336,7 @@ def shutdown_dependencies() -> None:
     get_generation_provider.cache_clear()
     get_grounded_answer_service.cache_clear()
     get_grounded_answer_rate_limiter.cache_clear()
+    get_api_key_authenticator.cache_clear()
     get_readiness_qdrant_vector_store.cache_clear()
     get_readiness_service.cache_clear()
     get_settings.cache_clear()

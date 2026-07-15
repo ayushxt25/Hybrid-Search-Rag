@@ -1,10 +1,11 @@
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_document_indexing_service
+from app.core.config import get_settings
 from app.ingestion.exceptions import (
     CorruptedDocumentError,
     DocumentDecodingError,
@@ -567,3 +568,31 @@ def test_temporary_file_is_removed_after_failure() -> None:
     assert response.status_code == 400
     assert captured_path is not None
     assert not captured_path.exists()
+
+
+def test_ingest_document_rejects_missing_api_key_when_enabled() -> None:
+    service = Mock()
+    override_indexing_service(service)
+
+    with patch(
+        "app.api.dependencies.get_settings",
+        return_value=type(
+            "Settings",
+            (),
+            {
+                "api_auth_enabled": True,
+                "api_auth_key_sha256": "0" * 64,
+                "api_auth_header_name": "X-API-Key",
+                "observability_enabled": True,
+            },
+        )(),
+    ):
+        get_settings.cache_clear()
+        response = client.post(
+            "/api/v1/documents/ingest",
+            files={"file": ("policy.txt", b"Valid uploaded contents.", "text/plain")},
+        )
+
+    assert response.status_code == 401
+    assert response.headers["WWW-Authenticate"] == "ApiKey"
+    service.index_document.assert_not_called()

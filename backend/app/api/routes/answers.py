@@ -7,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from app.api.dependencies import (
     get_grounded_answer_rate_limiter,
     get_grounded_answer_service,
+    require_api_key,
 )
 from app.core.config import get_settings
 from app.generation.models import GroundedAnswerRequest, GroundedAnswerResult
@@ -66,6 +67,7 @@ async def grounded_answer(
     request_body: GroundedAnswerRequest,
     request: Request,
     response: Response,
+    _: Annotated[None, Depends(require_api_key)],
     service: GroundedAnswerServiceDependency,
     limiter: GroundedAnswerRateLimiterDependency,
 ) -> GroundedAnswerResult:

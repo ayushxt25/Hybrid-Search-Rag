@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +8,7 @@ from app.api.dependencies import (
     get_hybrid_search_service,
     get_sparse_search_service,
 )
+from app.core.config import get_settings
 from app.main import app
 from app.schemas.search import DenseSearchResult
 from app.schemas.search_request import DenseSearchResponse
@@ -510,3 +511,55 @@ def test_hybrid_search_maps_runtime_error() -> None:
     assert response.json() == {
         "detail": ("Hybrid search did not complete successfully.")
     }
+
+
+def test_search_rejects_missing_api_key_when_protected() -> None:
+    service = Mock()
+    service.search.return_value = create_search_response()
+    override_search_service(service)
+
+    with patch(
+        "app.api.dependencies.get_settings",
+        return_value=type(
+            "Settings",
+            (),
+            {
+                "api_auth_enabled": True,
+                "api_auth_key_sha256": "0" * 64,
+                "api_auth_header_name": "X-API-Key",
+                "api_auth_protect_search": True,
+                "observability_enabled": True,
+            },
+        )(),
+    ):
+        get_settings.cache_clear()
+        response = client.post("/api/v1/search/dense", json={"query": "remote work"})
+
+    assert response.status_code == 401
+    service.search.assert_not_called()
+
+
+def test_search_remains_public_when_search_protection_disabled() -> None:
+    service = Mock()
+    service.search.return_value = create_search_response()
+    override_search_service(service)
+
+    with patch(
+        "app.api.dependencies.get_settings",
+        return_value=type(
+            "Settings",
+            (),
+            {
+                "api_auth_enabled": True,
+                "api_auth_key_sha256": "0" * 64,
+                "api_auth_header_name": "X-API-Key",
+                "api_auth_protect_search": False,
+                "observability_enabled": True,
+            },
+        )(),
+    ):
+        get_settings.cache_clear()
+        response = client.post("/api/v1/search/dense", json={"query": "remote work"})
+
+    assert response.status_code == 200
+    service.search.assert_called_once()

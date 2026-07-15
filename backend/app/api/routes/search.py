@@ -7,6 +7,7 @@ from app.api.dependencies import (
     get_dense_search_service,
     get_hybrid_search_service,
     get_sparse_search_service,
+    require_search_api_key,
 )
 from app.schemas.search_request import (
     DenseSearchRequest,
@@ -39,6 +40,7 @@ router = APIRouter(
 )
 async def dense_search(
     request: DenseSearchRequest,
+    _: Annotated[None, Depends(require_search_api_key)],
     search_service: Annotated[
         DenseSearchService,
         Depends(get_dense_search_service),
@@ -87,6 +89,7 @@ async def dense_search(
 )
 async def sparse_search(
     request: SparseSearchRequest,
+    _: Annotated[None, Depends(require_search_api_key)],
     search_service: Annotated[
         SparseSearchService,
         Depends(get_sparse_search_service),
@@ -135,6 +138,7 @@ async def sparse_search(
 )
 async def hybrid_search(
     request: HybridSearchRequest,
+    _: Annotated[None, Depends(require_search_api_key)],
     search_service: Annotated[
         HybridSearchService,
         Depends(get_hybrid_search_service),

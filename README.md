@@ -115,6 +115,16 @@ JSON requests are limited to 256 KiB by default and document uploads to 10 MiB.
 Malformed `Content-Length` returns `400`; oversized JSON or document uploads
 return `413` with sanitized details. Authentication remains future work.
 
+API-key authentication is disabled by default. When enabled, document ingestion
+and grounded-answer generation require the configured header, `X-API-Key` by
+default; search routes are also protected unless `API_AUTH_PROTECT_SEARCH=false`.
+Health endpoints remain public. The application stores only a SHA-256 digest,
+not a plaintext key. Generate a digest locally with
+`python -c "import hashlib,getpass; print(hashlib.sha256(getpass.getpass('API key: ').encode()).hexdigest())"`.
+Missing or invalid credentials return `401` with `WWW-Authenticate: ApiKey`.
+This is intended for service-to-service or local deployment; user accounts and
+OAuth/JWT remain future work.
+
 ## Dependency Lifecycle
 
 Heavy dependencies remain lazy and are not created during application startup.

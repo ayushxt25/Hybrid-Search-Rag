@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from app.api.dependencies import (
+    get_api_key_authenticator,
     get_context_assembler,
     get_dense_search_service,
     get_document_indexing_service,
@@ -23,6 +24,7 @@ from app.generation.openai import OpenAIGenerationProvider
 from app.generation.service import GroundedAnswerService
 from app.prompting.builder import GroundedPromptBuilder
 from app.rate_limit.in_memory import InMemoryFixedWindowRateLimiter
+from app.security.api_key import ApiKeyAuthenticator
 from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
 from app.services.hybrid_search import HybridSearchService
@@ -458,3 +460,24 @@ def test_readiness_service_is_created_and_cached(
 @patch("app.api.dependencies.QdrantVectorStore")
 def test_readiness_dependency_is_lazy(vector_store_class: Mock) -> None:
     vector_store_class.assert_not_called()
+
+
+@patch("app.api.dependencies.get_settings")
+def test_api_key_authenticator_is_created_and_cached(settings_factory: Mock) -> None:
+    settings_factory.return_value = Mock(
+        api_auth_enabled=True,
+        api_auth_key_sha256="a" * 64,
+    )
+
+    first = get_api_key_authenticator()
+    second = get_api_key_authenticator()
+
+    assert isinstance(first, ApiKeyAuthenticator)
+    assert second is first
+
+
+@patch("app.api.dependencies.get_settings")
+def test_api_key_authenticator_is_lazy_when_disabled(settings_factory: Mock) -> None:
+    settings_factory.return_value = Mock(api_auth_enabled=False)
+
+    assert get_api_key_authenticator() is None
