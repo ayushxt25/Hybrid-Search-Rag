@@ -1,3 +1,4 @@
+import logging
 import tempfile
 from pathlib import Path
 from typing import Annotated
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies import get_document_indexing_service
+from app.core.config import get_settings
 from app.ingestion.exceptions import (
     CorruptedDocumentError,
     DocumentDecodingError,
@@ -16,6 +18,7 @@ from app.ingestion.exceptions import (
     NoExtractableTextError,
     UnsupportedFileTypeError,
 )
+from app.observability.request_context import get_request_id
 from app.schemas.indexing import IndexedDocumentResult
 from app.services.document_indexing import DocumentIndexingService
 from app.vectorstore.exceptions import (
@@ -28,8 +31,9 @@ router = APIRouter(
     prefix="/documents",
     tags=["Documents"],
 )
+logger = logging.getLogger("app.security")
 
-MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
+UPLOAD_READ_CHUNK_BYTES = 1024 * 1024
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".docx"}
 
 
@@ -71,13 +75,30 @@ async def ingest_document(
             detail=("Only .txt, .md, .pdf and .docx files are currently supported."),
         )
 
-    contents = await file.read(MAX_UPLOAD_SIZE_BYTES + 1)
+    settings = get_settings()
+    contents = bytearray()
+    while True:
+        chunk = await file.read(UPLOAD_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        contents.extend(chunk)
+        if len(contents) > settings.max_document_upload_bytes:
+            if settings.observability_enabled:
+                logger.warning(
+                    "request_rejected",
+                    extra={
+                        "event": "request_rejected",
+                        "request_id": get_request_id(),
+                        "reason": "document_too_large",
+                        "status_code": status.HTTP_413_CONTENT_TOO_LARGE,
+                    },
+                )
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Uploaded document exceeds the configured size limit.",
+            )
 
-    if len(contents) > MAX_UPLOAD_SIZE_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail="Uploaded document exceeds the 20 MiB size limit.",
-        )
+    await file.seek(0)
 
     if not contents:
         raise HTTPException(
@@ -88,7 +109,7 @@ async def ingest_document(
     try:
         with tempfile.TemporaryDirectory() as temporary_directory:
             temporary_path = Path(temporary_directory) / original_file_name
-            temporary_path.write_bytes(contents)
+            temporary_path.write_bytes(bytes(contents))
 
             result = await run_in_threadpool(
                 indexing_service.index_document,

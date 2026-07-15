@@ -102,6 +102,19 @@ component is not ready. Set `READINESS_ENABLED=false` to return ready with a
 `not_configured` readiness component. Container liveness probes should use
 `/api/v1/health/live`; readiness probes should use `/api/v1/health/ready`.
 
+## API Security
+
+Trusted host validation defaults to `localhost`, `127.0.0.1`, and `testserver`;
+production deployments should set `TRUSTED_HOSTS` to their public hostnames.
+CORS is disabled by default and only configured origins are allowed when enabled.
+Responses include conservative security headers for content sniffing, framing,
+referrer, permissions, resource policy, and CSP protections. HSTS is
+intentionally excluded while local HTTP development is supported.
+
+JSON requests are limited to 256 KiB by default and document uploads to 10 MiB.
+Malformed `Content-Length` returns `400`; oversized JSON or document uploads
+return `413` with sanitized details. Authentication remains future work.
+
 ## Dependency Lifecycle
 
 Heavy dependencies remain lazy and are not created during application startup.

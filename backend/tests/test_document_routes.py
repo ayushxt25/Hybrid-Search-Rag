@@ -254,7 +254,7 @@ def test_ingest_document_rejects_oversized_file() -> None:
     service = Mock()
     override_indexing_service(service)
 
-    oversized_contents = b"x" * (20 * 1024 * 1024 + 1)
+    oversized_contents = b"x" * (10 * 1024 * 1024 + 1)
 
     response = client.post(
         "/api/v1/documents/ingest",
@@ -269,10 +269,85 @@ def test_ingest_document_rejects_oversized_file() -> None:
 
     assert response.status_code == 413
     assert response.json() == {
-        "detail": ("Uploaded document exceeds the 20 MiB size limit.")
+        "detail": ("Uploaded document exceeds the configured size limit.")
     }
 
     service.index_document.assert_not_called()
+
+
+def test_ingest_document_accepts_file_below_upload_limit() -> None:
+    service = Mock()
+    service.index_document.return_value = create_success_result(
+        file_name="small.txt",
+        file_extension=".txt",
+    )
+    override_indexing_service(service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={"file": ("small.txt", b"x" * 1024, "text/plain")},
+    )
+
+    assert response.status_code == 200
+    service.index_document.assert_called_once()
+
+
+def test_ingest_document_accepts_file_exactly_at_upload_limit() -> None:
+    service = Mock()
+    service.index_document.return_value = create_success_result(
+        file_name="exact.txt",
+        file_extension=".txt",
+    )
+    override_indexing_service(service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={"file": ("exact.txt", b"x" * (10 * 1024 * 1024), "text/plain")},
+    )
+
+    assert response.status_code == 200
+    service.index_document.assert_called_once()
+
+
+def test_ingest_document_oversized_file_logs_safely(caplog) -> None:
+    service = Mock()
+    override_indexing_service(service)
+
+    with caplog.at_level("WARNING", logger="app.security"):
+        response = client.post(
+            "/api/v1/documents/ingest",
+            files={
+                "file": (
+                    "secret_filename.txt",
+                    b"SECRET_CONTENT" * (1024 * 1024),
+                    "text/plain",
+                )
+            },
+        )
+
+    assert response.status_code == 413
+    assert "secret_filename.txt" not in caplog.text
+    assert "SECRET_CONTENT" not in caplog.text
+    service.index_document.assert_not_called()
+
+
+def test_ingest_document_file_pointer_reset_before_processing() -> None:
+    service = Mock()
+
+    def index_document(document_path: Path) -> IndexedDocumentResult:
+        assert document_path.read_bytes() == b"Valid uploaded contents."
+        return create_success_result(file_name="policy.txt", file_extension=".txt")
+
+    service.index_document.side_effect = index_document
+    override_indexing_service(service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        files={"file": ("policy.txt", b"Valid uploaded contents.", "text/plain")},
+    )
+
+    assert response.status_code == 200
+    service.index_document.assert_called_once()
 
 
 @pytest.mark.parametrize(

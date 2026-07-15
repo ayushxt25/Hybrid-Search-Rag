@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     observability_enabled: bool = True
     readiness_enabled: bool = True
+    security_headers_enabled: bool = True
+    trusted_hosts: list[str] = ["localhost", "127.0.0.1", "testserver"]
+    cors_enabled: bool = False
+    cors_allowed_origins: list[str] = []
+    cors_allow_credentials: bool = False
+    max_json_request_bytes: int = Field(default=262144, gt=0)
+    max_document_upload_bytes: int = Field(default=10485760, gt=0)
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection_name: str = "internal_document_chunks"
@@ -52,6 +59,24 @@ class Settings(BaseSettings):
 
         return normalized_value
 
+    @field_validator("trusted_hosts")
+    @classmethod
+    def validate_trusted_hosts(cls, value: list[str]) -> list[str]:
+        normalized_hosts = [host.strip() for host in value]
+        if not normalized_hosts or any(not host for host in normalized_hosts):
+            raise ValueError("trusted_hosts must contain non-blank values.")
+
+        return normalized_hosts
+
+    @field_validator("cors_allowed_origins")
+    @classmethod
+    def validate_cors_origins(cls, value: list[str]) -> list[str]:
+        normalized_origins = [origin.strip() for origin in value]
+        if any(not origin for origin in normalized_origins):
+            raise ValueError("cors_allowed_origins must contain non-blank values.")
+
+        return normalized_origins
+
     @field_validator("openai_base_url", mode="before")
     @classmethod
     def normalize_blank_openai_base_url(cls, value: str | None) -> str | None:
@@ -85,6 +110,15 @@ class Settings(BaseSettings):
 
         if value <= 0:
             raise ValueError("hybrid weights must be greater than zero.")
+
+        return value
+
+    @field_validator("cors_allow_credentials")
+    @classmethod
+    def validate_cors_credentials(cls, value: bool, info) -> bool:
+        origins = info.data.get("cors_allowed_origins", [])
+        if value and "*" in origins:
+            raise ValueError("wildcard CORS origin cannot allow credentials.")
 
         return value
 
