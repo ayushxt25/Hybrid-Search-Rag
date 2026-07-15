@@ -89,6 +89,19 @@ provider responses. Observability logs can be disabled with
 `OBSERVABILITY_ENABLED=false`; timings are internal and are not exposed in API
 responses.
 
+## Health Checks
+
+The legacy `GET /api/v1/health` endpoint still returns service metadata.
+`GET /api/v1/health/live` is a fast process liveness check and returns
+`{"status":"alive"}` without creating external clients. `GET
+/api/v1/health/ready` checks Qdrant connectivity and hybrid collection
+compatibility, OpenAI generation configuration, and embedding dimension
+configuration. Readiness does not call OpenAI, load embedding models, index
+documents, or run searches. A `503` response means at least one required
+component is not ready. Set `READINESS_ENABLED=false` to return ready with a
+`not_configured` readiness component. Container liveness probes should use
+`/api/v1/health/live`; readiness probes should use `/api/v1/health/ready`.
+
 ## Dependency Lifecycle
 
 Heavy dependencies remain lazy and are not created during application startup.

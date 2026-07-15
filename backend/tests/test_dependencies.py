@@ -12,6 +12,8 @@ from app.api.dependencies import (
     get_grounded_answer_service,
     get_grounded_prompt_builder,
     get_hybrid_search_service,
+    get_readiness_qdrant_vector_store,
+    get_readiness_service,
     get_sparse_embedding_provider,
     get_sparse_search_service,
     shutdown_dependencies,
@@ -25,6 +27,7 @@ from app.services.dense_search import DenseSearchService
 from app.services.document_indexing import DocumentIndexingService
 from app.services.hybrid_search import HybridSearchService
 from app.services.sparse_search import SparseSearchService
+from app.vectorstore.qdrant import QdrantVectorStore
 
 
 @pytest.fixture(autouse=True)
@@ -402,3 +405,56 @@ def test_grounded_answer_rate_limiter_is_created_and_cached(
     assert second is first
     assert first.limit == 3
     assert first.window_seconds == 9
+
+
+@patch("app.api.dependencies.QdrantVectorStore")
+@patch("app.api.dependencies.get_settings")
+def test_readiness_qdrant_vector_store_is_created_and_cached(
+    settings_factory: Mock,
+    vector_store_class: Mock,
+) -> None:
+    settings_factory.return_value = Mock(
+        qdrant_url="http://localhost:6333",
+        qdrant_hybrid_collection_name="test_hybrid_chunks",
+        dense_embedding_dimensions=384,
+        qdrant_health_timeout_seconds=1.5,
+    )
+    vector_store = Mock(spec=QdrantVectorStore)
+    vector_store_class.return_value = vector_store
+
+    first = get_readiness_qdrant_vector_store()
+    second = get_readiness_qdrant_vector_store()
+
+    assert first is vector_store
+    assert second is vector_store
+    vector_store_class.assert_called_once_with(
+        url="http://localhost:6333",
+        collection_name="test_hybrid_chunks",
+        vector_dimensions=384,
+        sparse_enabled=True,
+        timeout_seconds=1.5,
+    )
+
+
+@patch("app.api.dependencies.get_readiness_qdrant_vector_store")
+@patch("app.api.dependencies.get_settings")
+def test_readiness_service_is_created_and_cached(
+    settings_factory: Mock,
+    qdrant_factory: Mock,
+) -> None:
+    settings = Mock()
+    qdrant_checker = Mock()
+    settings_factory.return_value = settings
+    qdrant_factory.return_value = qdrant_checker
+
+    first = get_readiness_service()
+    second = get_readiness_service()
+
+    assert second is first
+    assert first.settings is settings
+    assert first.qdrant_checker is qdrant_checker
+
+
+@patch("app.api.dependencies.QdrantVectorStore")
+def test_readiness_dependency_is_lazy(vector_store_class: Mock) -> None:
+    vector_store_class.assert_not_called()

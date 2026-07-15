@@ -9,6 +9,7 @@ from app.embeddings.sentence_transformer import (
 )
 from app.generation.openai import OpenAIGenerationProvider
 from app.generation.service import GroundedAnswerService
+from app.health.service import ReadinessService
 from app.ingestion.pipeline import DocumentIngestionPipeline
 from app.prompting.builder import GroundedPromptBuilder
 from app.rate_limit.in_memory import InMemoryFixedWindowRateLimiter
@@ -223,6 +224,31 @@ def get_grounded_answer_rate_limiter() -> InMemoryFixedWindowRateLimiter:
     )
 
 
+@lru_cache
+def get_readiness_qdrant_vector_store() -> QdrantVectorStore:
+    """Return the shared lightweight Qdrant readiness checker."""
+    settings = get_settings()
+
+    return _register_closeable(
+        QdrantVectorStore(
+            url=settings.qdrant_url,
+            collection_name=settings.qdrant_hybrid_collection_name,
+            vector_dimensions=settings.dense_embedding_dimensions,
+            sparse_enabled=True,
+            timeout_seconds=settings.qdrant_health_timeout_seconds,
+        )
+    )
+
+
+@lru_cache
+def get_readiness_service() -> ReadinessService:
+    """Return the shared readiness service."""
+    return ReadinessService(
+        settings=get_settings(),
+        qdrant_checker=get_readiness_qdrant_vector_store(),
+    )
+
+
 def shutdown_dependencies() -> None:
     errors: list[Exception] = []
 
@@ -253,6 +279,8 @@ def shutdown_dependencies() -> None:
     get_generation_provider.cache_clear()
     get_grounded_answer_service.cache_clear()
     get_grounded_answer_rate_limiter.cache_clear()
+    get_readiness_qdrant_vector_store.cache_clear()
+    get_readiness_service.cache_clear()
     get_settings.cache_clear()
     if errors:
         return

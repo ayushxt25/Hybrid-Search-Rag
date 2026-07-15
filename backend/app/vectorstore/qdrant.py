@@ -30,6 +30,7 @@ class QdrantVectorStore:
         url: str | None = None,
         client: QdrantClient | None = None,
         sparse_enabled: bool = False,
+        timeout_seconds: float | None = None,
     ) -> None:
         normalized_collection_name = collection_name.strip()
 
@@ -50,7 +51,10 @@ class QdrantVectorStore:
         self.vector_dimensions = vector_dimensions
         self._owns_client = client is None
         self._closed = False
-        self.client = client if client is not None else QdrantClient(url=url)
+        if client is None and timeout_seconds is not None:
+            self.client = QdrantClient(url=url, timeout=timeout_seconds)
+        else:
+            self.client = client if client is not None else QdrantClient(url=url)
         self.sparse_enabled = sparse_enabled
 
     def close(self) -> None:
@@ -96,6 +100,23 @@ class QdrantVectorStore:
         ) as error:
             raise VectorStoreConnectionError(
                 "Unable to create or inspect the Qdrant collection."
+            ) from error
+
+    def check_readiness(self) -> None:
+        try:
+            if not self.client.collection_exists(self.collection_name):
+                raise VectorStoreConfigurationError("Qdrant collection does not exist.")
+            self._validate_existing_collection()
+        except VectorStoreConfigurationError:
+            raise
+        except (
+            UnexpectedResponse,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as error:
+            raise VectorStoreConnectionError(
+                "Unable to inspect the Qdrant collection."
             ) from error
 
     def _validate_existing_collection(self) -> None:

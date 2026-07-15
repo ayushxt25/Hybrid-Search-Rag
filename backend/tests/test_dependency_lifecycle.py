@@ -8,6 +8,7 @@ from app.api import dependencies
 from app.api.dependencies import (
     get_generation_provider,
     get_grounded_answer_rate_limiter,
+    get_readiness_qdrant_vector_store,
     shutdown_dependencies,
 )
 from app.generation.openai import OpenAIGenerationProvider
@@ -206,3 +207,24 @@ def test_generation_provider_cache_is_cleared_after_shutdown() -> None:
         provider = get_generation_provider()
         shutdown_dependencies()
         assert get_generation_provider() is not provider
+
+
+@patch("app.api.dependencies.QdrantVectorStore")
+@patch("app.api.dependencies.get_settings")
+def test_lifecycle_shutdown_closes_readiness_client(
+    settings_factory: Mock,
+    vector_store_class: Mock,
+) -> None:
+    settings_factory.return_value = SimpleNamespace(
+        qdrant_url="http://localhost:6333",
+        qdrant_hybrid_collection_name="test_hybrid_chunks",
+        dense_embedding_dimensions=384,
+        qdrant_health_timeout_seconds=3.0,
+    )
+    checker = Mock()
+    vector_store_class.return_value = checker
+
+    assert get_readiness_qdrant_vector_store() is checker
+    shutdown_dependencies()
+
+    checker.close.assert_called_once_with()

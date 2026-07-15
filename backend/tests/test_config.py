@@ -19,11 +19,21 @@ def test_hybrid_weight_environment_overrides(monkeypatch) -> None:
 def test_observability_environment_overrides(monkeypatch) -> None:
     monkeypatch.setenv("LOG_LEVEL", "warning")
     monkeypatch.setenv("OBSERVABILITY_ENABLED", "false")
+    monkeypatch.setenv("READINESS_ENABLED", "false")
 
     settings = Settings(_env_file=None)
 
     assert settings.log_level == "WARNING"
     assert settings.observability_enabled is False
+    assert settings.readiness_enabled is False
+
+
+def test_qdrant_health_timeout_environment_override(monkeypatch) -> None:
+    monkeypatch.setenv("QDRANT_HEALTH_TIMEOUT_SECONDS", "1.5")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.qdrant_health_timeout_seconds == 1.5
 
 
 def test_context_environment_overrides(monkeypatch) -> None:
@@ -115,8 +125,11 @@ def test_zero_openai_generation_max_retries_is_allowed(monkeypatch) -> None:
         ("PROMPT_MAX_QUESTION_CHARACTERS", "0", "greater than 0"),
         ("PROMPT_MAX_QUESTION_CHARACTERS", "-1", "greater than 0"),
         ("OPENAI_GENERATION_TIMEOUT_SECONDS", "0", "greater than 0"),
-        ("OPENAI_GENERATION_TIMEOUT_SECONDS", "nan", "openai timeout must be finite"),
+        ("OPENAI_GENERATION_TIMEOUT_SECONDS", "nan", "timeout must be finite"),
         ("OPENAI_GENERATION_MAX_RETRIES", "-1", "greater than or equal to 0"),
+        ("QDRANT_HEALTH_TIMEOUT_SECONDS", "0", "greater than 0"),
+        ("QDRANT_HEALTH_TIMEOUT_SECONDS", "-1", "greater than 0"),
+        ("QDRANT_HEALTH_TIMEOUT_SECONDS", "nan", "timeout must be finite"),
         ("GROUNDED_ANSWER_RATE_LIMIT_REQUESTS", "0", "greater than 0"),
         ("GROUNDED_ANSWER_RATE_LIMIT_REQUESTS", "-1", "greater than 0"),
         ("GROUNDED_ANSWER_RATE_LIMIT_WINDOW_SECONDS", "0", "greater than 0"),

@@ -14,10 +14,12 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     log_level: str = "INFO"
     observability_enabled: bool = True
+    readiness_enabled: bool = True
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection_name: str = "internal_document_chunks"
     qdrant_hybrid_collection_name: str = "internal_document_chunks_hybrid"
+    qdrant_health_timeout_seconds: float = Field(default=3.0, gt=0)
     dense_embedding_dimensions: int = Field(default=384, gt=0)
     hybrid_dense_weight: float = 1.5
     hybrid_sparse_weight: float = 1.0
@@ -58,16 +60,20 @@ class Settings(BaseSettings):
 
         return value
 
-    @field_validator("openai_generation_timeout_seconds", mode="before")
+    @field_validator(
+        "openai_generation_timeout_seconds",
+        "qdrant_health_timeout_seconds",
+        mode="before",
+    )
     @classmethod
-    def validate_openai_timeout(cls, value: object) -> object:
+    def validate_timeout(cls, value: object) -> object:
         try:
             numeric_value = float(value)
         except (TypeError, ValueError):
             return value
 
         if not isfinite(numeric_value):
-            raise ValueError("openai timeout must be finite.")
+            raise ValueError("timeout must be finite.")
 
         return value
 
