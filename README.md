@@ -102,6 +102,24 @@ component is not ready. Set `READINESS_ENABLED=false` to return ready with a
 `not_configured` readiness component. Container liveness probes should use
 `/api/v1/health/live`; readiness probes should use `/api/v1/health/ready`.
 
+## Document Lifecycle
+
+Indexed documents can be managed without a separate database. `GET
+/api/v1/documents` lists document metadata, `GET /api/v1/documents/{document_id}`
+returns detail metadata, and `DELETE /api/v1/documents/{document_id}`
+permanently removes all matching chunks from the configured Qdrant collection.
+Management responses do not include chunk text or embedding vectors.
+
+Ingestion remains deterministic: identical content produces the same document ID
+and upserts idempotently. To replace a logical document with changed content,
+submit the upload with multipart field `replace_document_id`; the backend parses
+and embeds the new file first, then deletes stale chunks immediately before
+upserting the replacement. Qdrant is not transactional, so a process or Qdrant
+failure between delete and upsert can still require re-ingestion. Delete and
+replace operations use process-local per-document locks only; multiple API
+processes need external coordination. Create a backup before destructive
+production operations.
+
 ## API Security
 
 Trusted host validation defaults to `localhost`, `127.0.0.1`, and `testserver`;

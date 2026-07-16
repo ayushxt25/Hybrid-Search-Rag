@@ -7,6 +7,7 @@ from app.api.dependencies import (
     get_context_assembler,
     get_dense_search_service,
     get_document_indexing_service,
+    get_document_management_service,
     get_embedding_provider,
     get_generation_provider,
     get_grounded_answer_rate_limiter,
@@ -20,6 +21,7 @@ from app.api.dependencies import (
     shutdown_dependencies,
 )
 from app.context.assembler import ContextAssembler
+from app.documents.service import DocumentManagementService
 from app.generation.openai import OpenAIGenerationProvider
 from app.generation.service import GroundedAnswerService
 from app.prompting.builder import GroundedPromptBuilder
@@ -114,6 +116,34 @@ def test_document_indexing_service_is_created_and_cached(
         chunk_size=200,
         chunk_overlap=40,
     )
+    vector_store_class.assert_called_once_with(
+        url="http://localhost:6333",
+        collection_name="test_hybrid_chunks",
+        vector_dimensions=384,
+        sparse_enabled=True,
+    )
+
+
+@patch("app.api.dependencies.QdrantVectorStore")
+@patch("app.api.dependencies.get_settings")
+def test_document_management_service_is_created_and_cached(
+    settings_factory: Mock,
+    vector_store_class: Mock,
+) -> None:
+    settings_factory.return_value = Mock(
+        qdrant_url="http://localhost:6333",
+        qdrant_hybrid_collection_name="test_hybrid_chunks",
+        dense_embedding_dimensions=384,
+    )
+    vector_store = Mock(spec=QdrantVectorStore)
+    vector_store_class.return_value = vector_store
+
+    first = get_document_management_service()
+    second = get_document_management_service()
+
+    assert isinstance(first, DocumentManagementService)
+    assert second is first
+    assert first.vector_store is vector_store
     vector_store_class.assert_called_once_with(
         url="http://localhost:6333",
         collection_name="test_hybrid_chunks",

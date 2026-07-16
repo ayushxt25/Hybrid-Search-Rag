@@ -4,7 +4,10 @@ from unittest.mock import Mock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_document_indexing_service
+from app.api.dependencies import (
+    get_document_indexing_service,
+    get_document_management_service,
+)
 from app.core.config import get_settings
 from app.ingestion.exceptions import (
     CorruptedDocumentError,
@@ -17,6 +20,12 @@ from app.ingestion.exceptions import (
     UnsupportedFileTypeError,
 )
 from app.main import app
+from app.schemas.documents import (
+    DocumentDeletionResponse,
+    IndexedDocumentDetail,
+    IndexedDocumentListResponse,
+    IndexedDocumentSummary,
+)
 from app.schemas.indexing import IndexedDocumentResult
 from app.vectorstore.exceptions import (
     VectorStoreConfigurationError,
@@ -43,6 +52,12 @@ def override_indexing_service(
     service: Mock,
 ) -> None:
     app.dependency_overrides[get_document_indexing_service] = lambda: service
+
+
+def override_management_service(
+    service: Mock,
+) -> None:
+    app.dependency_overrides[get_document_management_service] = lambda: service
 
 
 def create_success_result(
@@ -596,3 +611,149 @@ def test_ingest_document_rejects_missing_api_key_when_enabled() -> None:
     assert response.status_code == 401
     assert response.headers["WWW-Authenticate"] == "ApiKey"
     service.index_document.assert_not_called()
+
+
+def test_list_documents_returns_indexed_documents() -> None:
+    service = Mock()
+    service.list_documents.return_value = IndexedDocumentListResponse(
+        documents=[
+            IndexedDocumentSummary(
+                document_id=DOCUMENT_ID,
+                filename="policy.txt",
+                content_type=None,
+                content_hash=CONTENT_HASH,
+                chunk_count=2,
+                indexed_at=None,
+            )
+        ],
+        next_cursor=None,
+    )
+    override_management_service(service)
+
+    response = client.get("/api/v1/documents")
+
+    assert response.status_code == 200
+    assert response.json()["documents"][0]["document_id"] == DOCUMENT_ID
+    assert "text" not in response.text
+    service.list_documents.assert_called_once_with(limit=20, cursor=None)
+
+
+def test_get_document_returns_detail() -> None:
+    service = Mock()
+    service.get_document.return_value = IndexedDocumentDetail(
+        document_id=DOCUMENT_ID,
+        filename="policy.txt",
+        content_type=None,
+        content_hash=CONTENT_HASH,
+        chunk_count=2,
+        indexed_at=None,
+        chunk_indices=[0, 1],
+        page_numbers=[3],
+        headings=["Policy"],
+    )
+    override_management_service(service)
+
+    response = client.get(f"/api/v1/documents/{DOCUMENT_ID}")
+
+    assert response.status_code == 200
+    assert response.json()["chunk_indices"] == [0, 1]
+    assert response.json()["page_numbers"] == [3]
+    assert response.json()["headings"] == ["Policy"]
+
+
+def test_get_document_returns_404_when_missing() -> None:
+    service = Mock()
+    service.get_document.return_value = None
+    override_management_service(service)
+
+    response = client.get(f"/api/v1/documents/{DOCUMENT_ID}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Indexed document was not found."}
+
+
+def test_delete_document_returns_deletion_response() -> None:
+    service = Mock()
+    service.delete_document.return_value = DocumentDeletionResponse(
+        document_id=DOCUMENT_ID,
+        deleted_chunks=2,
+        deleted=True,
+    )
+    override_management_service(service)
+
+    response = client.delete(f"/api/v1/documents/{DOCUMENT_ID}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "document_id": DOCUMENT_ID,
+        "deleted_chunks": 2,
+        "deleted": True,
+    }
+
+
+def test_delete_document_returns_404_when_missing() -> None:
+    service = Mock()
+    service.delete_document.return_value = None
+    override_management_service(service)
+
+    response = client.delete(f"/api/v1/documents/{DOCUMENT_ID}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Indexed document was not found."}
+
+
+def test_get_document_invalid_id_returns_422() -> None:
+    service = Mock()
+    service.get_document.side_effect = ValueError(
+        "document_id must be a 64-character hexadecimal string."
+    )
+    override_management_service(service)
+
+    response = client.get("/api/v1/documents/bad-id")
+
+    assert response.status_code == 422
+
+
+def test_list_documents_requires_search_auth_when_enabled() -> None:
+    service = Mock()
+    override_management_service(service)
+
+    with patch(
+        "app.api.dependencies.get_settings",
+        return_value=type(
+            "Settings",
+            (),
+            {
+                "api_auth_enabled": True,
+                "api_auth_key_sha256": "0" * 64,
+                "api_auth_header_name": "X-API-Key",
+                "api_auth_protect_search": True,
+                "observability_enabled": True,
+            },
+        )(),
+    ):
+        get_settings.cache_clear()
+        response = client.get("/api/v1/documents")
+
+    assert response.status_code == 401
+    service.list_documents.assert_not_called()
+
+
+def test_ingest_document_replaces_when_replace_document_id_is_supplied() -> None:
+    indexing_service = Mock()
+    management_service = Mock()
+    result = create_success_result(file_name="policy.txt", file_extension=".txt")
+    management_service.replace_document.return_value = result
+    override_indexing_service(indexing_service)
+    override_management_service(management_service)
+
+    response = client.post(
+        "/api/v1/documents/ingest",
+        data={"replace_document_id": DOCUMENT_ID},
+        files={"file": ("policy.txt", b"Valid uploaded contents.", "text/plain")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["document_id"] == DOCUMENT_ID
+    indexing_service.index_document.assert_not_called()
+    management_service.replace_document.assert_called_once()

@@ -6,6 +6,7 @@ from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.schemas.document import IngestedDocument, TextChunk
+from app.schemas.documents import IndexedDocumentDetail, IndexedDocumentSummary
 from app.schemas.embedding import ChunkEmbedding, ChunkSparseEmbedding
 from app.schemas.search import DenseSearchResult
 from app.vectorstore.exceptions import (
@@ -17,6 +18,8 @@ from app.vectorstore.identifiers import generate_qdrant_point_id
 
 DENSE_VECTOR_NAME = "dense"
 SPARSE_VECTOR_NAME = "sparse"
+DOCUMENT_SCROLL_BATCH_SIZE = 256
+DOCUMENT_SCAN_POINT_LIMIT = 10_000
 
 
 class QdrantVectorStore:
@@ -504,27 +507,22 @@ class QdrantVectorStore:
     def delete_document(
         self,
         document_id: str,
-    ) -> None:
+    ) -> int:
         """Delete every stored point belonging to one document."""
         normalized_document_id = document_id.strip()
 
         if not normalized_document_id:
             raise ValueError("document_id cannot be empty.")
 
+        deleted_chunks = self._count_document_chunks(normalized_document_id)
+        if deleted_chunks == 0:
+            return 0
+
         try:
             self.client.delete(
                 collection_name=self.collection_name,
                 points_selector=models.FilterSelector(
-                    filter=models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key="document_id",
-                                match=models.MatchValue(
-                                    value=normalized_document_id,
-                                ),
-                            )
-                        ]
-                    )
+                    filter=self._build_required_document_filter(normalized_document_id)
                 ),
                 wait=True,
             )
@@ -536,6 +534,159 @@ class QdrantVectorStore:
         ) as error:
             raise VectorStoreConnectionError(
                 "Unable to delete document vectors from Qdrant."
+            ) from error
+
+        return deleted_chunks
+
+    def replace_document(
+        self,
+        *,
+        replace_document_id: str,
+        ingested_document: IngestedDocument,
+        dense_embeddings: Sequence[ChunkEmbedding],
+        sparse_embeddings: Sequence[ChunkSparseEmbedding],
+    ) -> tuple[int, int]:
+        """Delete old chunks immediately before upserting the prepared replacement."""
+        deleted_chunks = self.delete_document(replace_document_id)
+        indexed_points = self.upsert_hybrid_document(
+            ingested_document=ingested_document,
+            dense_embeddings=dense_embeddings,
+            sparse_embeddings=sparse_embeddings,
+        )
+        return deleted_chunks, indexed_points
+
+    def list_documents(
+        self,
+        *,
+        limit: int,
+        cursor: str | None = None,
+    ) -> tuple[list[IndexedDocumentSummary], str | None]:
+        if limit <= 0:
+            raise ValueError("limit must be greater than zero.")
+
+        normalized_cursor = cursor.strip() if cursor is not None else None
+        documents: dict[str, IndexedDocumentDetail] = {}
+        next_offset = None
+        scanned_points = 0
+
+        try:
+            while scanned_points < DOCUMENT_SCAN_POINT_LIMIT:
+                points, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    limit=min(
+                        DOCUMENT_SCROLL_BATCH_SIZE,
+                        DOCUMENT_SCAN_POINT_LIMIT - scanned_points,
+                    ),
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                scanned_points += len(points)
+                for point in points:
+                    payload = point.payload or {}
+                    document = self._convert_document_payload(payload)
+                    if normalized_cursor and document.document_id <= normalized_cursor:
+                        continue
+                    documents[document.document_id] = self._merge_document_details(
+                        documents.get(document.document_id),
+                        document,
+                    )
+                if next_offset is None:
+                    break
+        except (
+            UnexpectedResponse,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as error:
+            raise VectorStoreConnectionError(
+                "Unable to list documents from Qdrant."
+            ) from error
+
+        sorted_documents = sorted(documents.values(), key=lambda item: item.document_id)
+        selected_documents = sorted_documents[:limit]
+        next_cursor = (
+            selected_documents[-1].document_id
+            if len(sorted_documents) > limit or next_offset is not None
+            else None
+        )
+
+        return [
+            IndexedDocumentSummary(
+                document_id=document.document_id,
+                filename=document.filename,
+                content_type=document.content_type,
+                content_hash=document.content_hash,
+                chunk_count=document.chunk_count,
+                indexed_at=document.indexed_at,
+            )
+            for document in selected_documents
+        ], next_cursor
+
+    def get_document(self, document_id: str) -> IndexedDocumentDetail | None:
+        normalized_document_id = document_id.strip()
+        if not normalized_document_id:
+            raise ValueError("document_id cannot be empty.")
+
+        detail: IndexedDocumentDetail | None = None
+        next_offset = None
+
+        try:
+            while True:
+                points, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=self._build_required_document_filter(
+                        normalized_document_id
+                    ),
+                    limit=DOCUMENT_SCROLL_BATCH_SIZE,
+                    offset=next_offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for point in points:
+                    detail = self._merge_document_details(
+                        detail,
+                        self._convert_document_payload(point.payload or {}),
+                    )
+                if next_offset is None:
+                    break
+        except (
+            UnexpectedResponse,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as error:
+            raise VectorStoreConnectionError(
+                "Unable to retrieve document metadata from Qdrant."
+            ) from error
+
+        return detail
+
+    def _count_document_chunks(self, document_id: str) -> int:
+        count = 0
+        next_offset = None
+
+        try:
+            while True:
+                points, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=self._build_required_document_filter(document_id),
+                    limit=DOCUMENT_SCROLL_BATCH_SIZE,
+                    offset=next_offset,
+                    with_payload=False,
+                    with_vectors=False,
+                )
+                count += len(points)
+                if next_offset is None:
+                    return count
+        except (
+            UnexpectedResponse,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as error:
+            raise VectorStoreConnectionError(
+                "Unable to count document vectors in Qdrant."
             ) from error
 
     @staticmethod
@@ -560,6 +711,59 @@ class QdrantVectorStore:
                     ),
                 )
             ]
+        )
+
+    @staticmethod
+    def _build_required_document_filter(document_id: str) -> models.Filter:
+        return models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="document_id",
+                    match=models.MatchValue(value=document_id),
+                )
+            ]
+        )
+
+    @classmethod
+    def _convert_document_payload(
+        cls,
+        payload: dict[str, Any],
+    ) -> IndexedDocumentDetail:
+        document_id = cls._require_payload_string(payload, "document_id")
+        chunk_index = cls._optional_payload_int(payload, "chunk_index")
+        page_number = cls._optional_payload_int(payload, "page_number")
+        heading = cls._optional_payload_string(payload, "heading")
+
+        return IndexedDocumentDetail(
+            document_id=document_id,
+            filename=cls._optional_payload_string(payload, "file_name"),
+            content_type=cls._optional_payload_string(payload, "content_type"),
+            content_hash=cls._optional_payload_string(payload, "content_hash"),
+            chunk_count=1,
+            indexed_at=None,
+            chunk_indices=[] if chunk_index is None else [chunk_index],
+            page_numbers=[] if page_number is None else [page_number],
+            headings=[] if not heading else [heading],
+        )
+
+    @staticmethod
+    def _merge_document_details(
+        current: IndexedDocumentDetail | None,
+        incoming: IndexedDocumentDetail,
+    ) -> IndexedDocumentDetail:
+        if current is None:
+            return incoming
+
+        return IndexedDocumentDetail(
+            document_id=current.document_id,
+            filename=current.filename or incoming.filename,
+            content_type=current.content_type or incoming.content_type,
+            content_hash=current.content_hash or incoming.content_hash,
+            chunk_count=current.chunk_count + incoming.chunk_count,
+            indexed_at=current.indexed_at or incoming.indexed_at,
+            chunk_indices=sorted({*current.chunk_indices, *incoming.chunk_indices}),
+            page_numbers=sorted({*current.page_numbers, *incoming.page_numbers}),
+            headings=sorted({*current.headings, *incoming.headings}),
         )
 
     def _require_sparse_enabled(

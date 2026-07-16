@@ -463,7 +463,7 @@ def test_delete_document_removes_its_points(
         embeddings=embeddings,
     )
 
-    vector_store.delete_document(document.document.document_id)
+    deleted_chunks = vector_store.delete_document(document.document.document_id)
 
     query_embedding = embedding_provider.embed_query("remote employee policy")
 
@@ -473,7 +473,98 @@ def test_delete_document_removes_its_points(
         document_id=document.document.document_id,
     )
 
+    assert deleted_chunks == document.chunk_count
     assert results == []
+
+
+def test_list_documents_aggregates_chunks_without_text_or_vectors(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(tmp_path)
+    sparse_vector_store.upsert_hybrid_document(
+        ingested_document=document,
+        dense_embeddings=create_dense_embeddings(document),
+        sparse_embeddings=create_sparse_embeddings(document),
+    )
+
+    documents, next_cursor = sparse_vector_store.list_documents(limit=20)
+
+    assert next_cursor is None
+    assert len(documents) == 1
+    assert documents[0].document_id == document.document.document_id
+    assert documents[0].filename == document.document.file_name
+    assert documents[0].content_hash == document.document.content_hash
+    assert documents[0].chunk_count == document.chunk_count
+    assert "text" not in documents[0].model_dump()
+    assert "vector" not in documents[0].model_dump()
+
+
+def test_get_document_deduplicates_and_sorts_metadata(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(
+        tmp_path,
+        content=(
+            "Heading\nRemote work policy allows work from home. Remote work repeats."
+        ),
+    )
+    sparse_vector_store.upsert_hybrid_document(
+        ingested_document=document,
+        dense_embeddings=create_dense_embeddings(document),
+        sparse_embeddings=create_sparse_embeddings(document),
+    )
+
+    detail = sparse_vector_store.get_document(document.document.document_id)
+
+    assert detail is not None
+    assert detail.chunk_count == document.chunk_count
+    assert detail.chunk_indices == sorted(
+        {chunk.chunk_index for chunk in document.chunks}
+    )
+    assert detail.page_numbers == sorted(
+        {chunk.page_number for chunk in document.chunks if chunk.page_number}
+    )
+    assert detail.headings == sorted(
+        {chunk.heading for chunk in document.chunks if chunk.heading}
+    )
+
+
+def test_get_document_returns_none_for_missing_document(
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    assert sparse_vector_store.get_document("a" * 64) is None
+
+
+def test_delete_document_returns_zero_for_missing_document(
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    assert sparse_vector_store.delete_document("a" * 64) == 0
+
+
+def test_list_documents_uses_document_cursor(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    first = create_ingested_document(tmp_path, file_name="a.txt", content="alpha one")
+    second = create_ingested_document(tmp_path, file_name="b.txt", content="beta two")
+    for document in (first, second):
+        sparse_vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=create_dense_embeddings(document),
+            sparse_embeddings=create_sparse_embeddings(document),
+        )
+
+    documents, next_cursor = sparse_vector_store.list_documents(limit=1)
+    next_documents, _ = sparse_vector_store.list_documents(
+        limit=1,
+        cursor=next_cursor,
+    )
+
+    assert next_cursor == documents[0].document_id
+    assert next_documents
+    assert next_documents[0].document_id > next_cursor
 
 
 def test_upsert_rejects_embedding_count_mismatch(

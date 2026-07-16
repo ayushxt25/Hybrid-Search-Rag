@@ -41,6 +41,68 @@ class DocumentIndexingService:
             indexed_points=ingested_document.chunk_count,
         )
 
+    def replace_document(
+        self,
+        *,
+        document_path: Path,
+        replace_document_id: str,
+    ) -> IndexedDocumentResult:
+        """Prepare a new document, then replace old chunks immediately before upsert."""
+        result, _ = self.replace_document_for_internal_use(
+            document_path=document_path,
+            replace_document_id=replace_document_id,
+        )
+        return result
+
+    def replace_document_for_internal_use(
+        self,
+        *,
+        document_path: Path,
+        replace_document_id: str,
+    ) -> tuple[IndexedDocumentResult, int]:
+        """Replace one document and return the public result plus deleted count."""
+        ingested_document = self.ingestion_pipeline.ingest(document_path)
+        document = ingested_document.document
+
+        dense_embeddings = self.embedding_provider.embed_chunks(
+            ingested_document.chunks
+        )
+        sparse_embeddings = self.sparse_embedding_provider.embed_chunks(
+            ingested_document.chunks
+        )
+
+        self._validate_embedding_counts(
+            ingested_document=ingested_document,
+            dense_embeddings=dense_embeddings,
+            sparse_embeddings=sparse_embeddings,
+        )
+
+        self.vector_store.ensure_collection()
+
+        deleted_chunks, indexed_points = self.vector_store.replace_document(
+            replace_document_id=replace_document_id,
+            ingested_document=ingested_document,
+            dense_embeddings=dense_embeddings,
+            sparse_embeddings=sparse_embeddings,
+        )
+
+        if indexed_points != ingested_document.chunk_count:
+            raise RuntimeError(
+                "Indexed point count does not match document chunk count."
+            )
+
+        return (
+            IndexedDocumentResult(
+                document_id=document.document_id,
+                content_hash=document.content_hash,
+                file_name=document.file_name,
+                file_extension=document.file_extension,
+                chunk_count=ingested_document.chunk_count,
+                indexed_points=indexed_points,
+            ),
+            deleted_chunks,
+        )
+
     def index_document_for_internal_use(
         self,
         document_path: Path,
@@ -55,15 +117,11 @@ class DocumentIndexingService:
             ingested_document.chunks
         )
 
-        if len(dense_embeddings) != ingested_document.chunk_count:
-            raise RuntimeError(
-                "Dense embedding count does not match document chunk count."
-            )
-
-        if len(sparse_embeddings) != ingested_document.chunk_count:
-            raise RuntimeError(
-                "Sparse embedding count does not match document chunk count."
-            )
+        self._validate_embedding_counts(
+            ingested_document=ingested_document,
+            dense_embeddings=dense_embeddings,
+            sparse_embeddings=sparse_embeddings,
+        )
 
         self.vector_store.ensure_collection()
 
@@ -79,3 +137,20 @@ class DocumentIndexingService:
             )
 
         return ingested_document
+
+    @staticmethod
+    def _validate_embedding_counts(
+        *,
+        ingested_document: IngestedDocument,
+        dense_embeddings,
+        sparse_embeddings,
+    ) -> None:
+        if len(dense_embeddings) != ingested_document.chunk_count:
+            raise RuntimeError(
+                "Dense embedding count does not match document chunk count."
+            )
+
+        if len(sparse_embeddings) != ingested_document.chunk_count:
+            raise RuntimeError(
+                "Sparse embedding count does not match document chunk count."
+            )

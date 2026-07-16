@@ -6,6 +6,7 @@ from fastapi import HTTPException, Request, status
 
 from app.context.assembler import ContextAssembler
 from app.core.config import get_settings
+from app.documents.service import DocumentManagementService
 from app.embeddings.sentence_transformer import (
     SentenceTransformerEmbeddingProvider,
 )
@@ -105,6 +106,22 @@ def get_document_indexing_service() -> DocumentIndexingService:
         sparse_embedding_provider=sparse_embedding_provider,
         vector_store=vector_store,
     )
+
+
+@lru_cache
+def get_document_management_service() -> DocumentManagementService:
+    """Return the shared indexed-document management service."""
+    settings = get_settings()
+    vector_store = _register_closeable(
+        QdrantVectorStore(
+            url=settings.qdrant_url,
+            collection_name=settings.qdrant_hybrid_collection_name,
+            vector_dimensions=settings.dense_embedding_dimensions,
+            sparse_enabled=True,
+        )
+    )
+
+    return DocumentManagementService(vector_store=vector_store)
 
 
 @lru_cache
@@ -328,6 +345,7 @@ def shutdown_dependencies() -> None:
     get_embedding_provider.cache_clear()
     get_sparse_embedding_provider.cache_clear()
     get_document_indexing_service.cache_clear()
+    get_document_management_service.cache_clear()
     get_dense_search_service.cache_clear()
     get_sparse_search_service.cache_clear()
     get_hybrid_search_service.cache_clear()
