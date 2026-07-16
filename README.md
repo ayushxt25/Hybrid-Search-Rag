@@ -132,3 +132,48 @@ Owned external clients, such as internally constructed Qdrant and OpenAI
 clients, are closed during FastAPI shutdown; injected clients remain
 caller-owned. Cached dependencies are cleared after shutdown, and repeated
 shutdown calls are safe.
+
+## Docker Compose
+
+Create `.env` from `.env.example`, set external secrets such as `OPENAI_API_KEY`
+there, then run:
+
+```bash
+docker compose up --build
+```
+
+Useful commands:
+
+```bash
+docker compose ps
+docker compose logs -f api
+docker compose logs -f qdrant
+docker compose down
+docker compose build --no-cache api
+```
+
+Use `docker compose down -v` only when intentionally deleting persisted Qdrant
+data and the Hugging Face model cache. The API is available at
+`http://localhost:8000`; useful endpoints are `/api/v1/health/live`,
+`/api/v1/health/ready`, and `/docs`.
+
+Local Python development uses `QDRANT_URL=http://127.0.0.1:6333`; Compose sets
+`QDRANT_URL=http://qdrant:6333` for the API container. Qdrant data is persisted
+in a named volume. Sentence-transformers models are loaded lazily; the first
+embedding request may download the model into the `huggingface_cache` volume and
+take longer. The API image runs as a non-root user, does not bind-mount source
+code, and uses one Uvicorn worker so in-memory rate limits remain process-local.
+Docker health uses liveness; readiness may remain `503` until the Qdrant hybrid
+collection exists and is compatible.
+
+## Continuous Integration
+
+GitHub Actions runs on pushes to `main`, pull requests targeting `main`, and
+manual dispatch. The CI workflow checks formatting with
+`python -m ruff format --check backend`, lints with `python -m ruff check backend`,
+and runs the full test suite with `python -m pytest` on Python 3.11.
+
+The container job validates `docker compose config` and builds the API image with
+`docker build --tag hybrid-search-rag-ci:local .`. It does not push images, use
+repository secrets, or require an OpenAI API key. Runtime Compose smoke testing is
+kept as a local check to avoid CI depending on external model or service state.
