@@ -251,3 +251,44 @@ def test_rrf_weighted_fusion_does_not_mutate_ranked_lists_or_results() -> None:
     assert [dense_preferred.score, sparse_preferred.score] == original_scores
     assert fused[0] is not dense_preferred
     assert fused[1] is not sparse_preferred
+
+
+def test_rrf_diagnostics_derive_from_same_score_calculation() -> None:
+    dense_only = create_result("a" * 64)
+    duplicate = create_result("b" * 64, score=0.8)
+    sparse_duplicate = duplicate.model_copy(update={"score": 0.6})
+
+    results = reciprocal_rank_fusion(
+        [[dense_only, duplicate], [sparse_duplicate]],
+        limit=2,
+        k=60,
+        weights=[2.0, 3.0],
+        include_score_diagnostics=True,
+    )
+
+    duplicate_result = results[0]
+    diagnostic = duplicate_result.score_diagnostics
+    assert diagnostic is not None
+    assert duplicate_result.score == pytest.approx(
+        diagnostic.dense.rrf_contribution + diagnostic.sparse.rrf_contribution
+    )
+    assert diagnostic.dense.rank == 2
+    assert diagnostic.sparse.rank == 1
+    assert diagnostic.dense.rrf_contribution == pytest.approx(2.0 / 62)
+    assert diagnostic.sparse.rrf_contribution == pytest.approx(3.0 / 61)
+    assert diagnostic.fused_rank == 1
+
+
+def test_rrf_diagnostics_missing_branch_contribution_is_zero() -> None:
+    result = reciprocal_rank_fusion(
+        [[create_result("a" * 64)], []],
+        limit=1,
+        weights=[2.0, 3.0],
+        include_score_diagnostics=True,
+    )[0]
+
+    diagnostic = result.score_diagnostics
+    assert diagnostic is not None
+    assert diagnostic.sparse.rank is None
+    assert diagnostic.sparse.weight == 3.0
+    assert diagnostic.sparse.rrf_contribution == 0.0

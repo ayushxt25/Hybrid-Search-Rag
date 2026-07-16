@@ -174,6 +174,7 @@ def test_grounded_answer_returns_answer_response() -> None:
         }
     ]
     assert body["citation_markers"] == [1]
+    assert "score_diagnostics" not in body
 
 
 def test_grounded_answer_forwards_request_fields() -> None:

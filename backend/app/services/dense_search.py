@@ -1,5 +1,6 @@
 from app.embeddings.base import DenseEmbeddingProvider
 from app.retrieval.filters import RetrievalFilters
+from app.schemas.search import BranchScoreDiagnostic, RetrievalScoreDiagnostic
 from app.schemas.search_request import (
     DenseSearchRequest,
     DenseSearchResponse,
@@ -47,6 +48,30 @@ class DenseSearchService:
             score_threshold=request.score_threshold,
             filters=filters,
         )
+        if request.include_score_diagnostics:
+            results = [
+                result.model_copy(
+                    update={
+                        "score_diagnostics": RetrievalScoreDiagnostic(
+                            dense=BranchScoreDiagnostic(
+                                raw_score=result.score,
+                                rank=rank,
+                                weight=1.0,
+                                rrf_contribution=0.0,
+                            ),
+                            sparse=BranchScoreDiagnostic(
+                                raw_score=None,
+                                rank=None,
+                                weight=1.0,
+                                rrf_contribution=0.0,
+                            ),
+                            fused_score=result.score,
+                            fused_rank=rank,
+                        )
+                    }
+                )
+                for rank, result in enumerate(results, start=1)
+            ]
 
         return DenseSearchResponse(
             query=normalized_query,

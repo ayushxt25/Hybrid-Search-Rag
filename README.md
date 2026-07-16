@@ -48,6 +48,55 @@ Hybrid search:
 }
 ```
 
+Set `include_score_diagnostics` to `true` on dense, sparse, or hybrid search
+requests to include safe score diagnostics on each result. The default is
+`false`, which preserves the existing response shape. Dense diagnostics include
+the dense raw score and 1-based dense rank. Sparse diagnostics include the
+sparse raw score and 1-based sparse rank; sparse scoring comes from the
+deterministic hashed lexical sparse provider, not BM25.
+
+Hybrid diagnostics include dense and sparse branch raw scores, branch ranks,
+active branch weights, weighted-RRF contributions, fused score, and fused rank.
+The contribution formula is `branch_weight / (rrf_k + branch_rank)`, and the
+fused score is the sum of branch contributions. Dense and sparse raw scores are
+not directly comparable; weighted RRF ranks branch result order rather than
+normalizing raw scores. Fused score is not a probability or confidence value.
+Higher fused score means stronger combined ranking evidence, and absence from
+one branch does not exclude a result.
+
+```json
+{
+  "query": "remote work policy",
+  "include_score_diagnostics": true
+}
+```
+
+```json
+{
+  "score": 0.0407,
+  "score_diagnostics": {
+    "dense": {
+      "raw_score": 0.82,
+      "rank": 2,
+      "weight": 1.5,
+      "rrf_contribution": 0.0242
+    },
+    "sparse": {
+      "raw_score": 0.54,
+      "rank": 1,
+      "weight": 1.0,
+      "rrf_contribution": 0.0164
+    },
+    "fused_score": 0.0407,
+    "fused_rank": 1
+  }
+}
+```
+
+Diagnostics exclude embeddings, dense vectors, sparse vectors, raw Qdrant
+payloads, prompts, and other sensitive internals. Grounded-answer responses do
+not expose score diagnostics.
+
 Context assembly selects complete chunks under a fixed character budget. Chunk
 text is never cut, metadata headers and separators count toward the budget, and
 source numbers are assigned before generation so answers can cite stable source

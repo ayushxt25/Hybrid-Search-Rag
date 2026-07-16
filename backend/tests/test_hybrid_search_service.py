@@ -114,6 +114,7 @@ def test_search_retrieves_candidates_and_fuses_results() -> None:
         weights=[1.5, 1.0],
         limit=3,
         k=60,
+        include_score_diagnostics=False,
     )
 
 
@@ -134,6 +135,40 @@ def test_search_forwards_identical_filter_to_both_branches() -> None:
     assert dense_filters == RetrievalFilters(
         document_ids=[DOCUMENT_ID],
         content_types=["text/plain"],
+    )
+
+
+def test_search_attaches_hybrid_diagnostics_when_requested() -> None:
+    service, _, _, vector_store = create_service(
+        dense_weight=2.0,
+        sparse_weight=3.0,
+        rrf_k=40,
+    )
+    duplicate = create_result("d" * 64)
+    vector_store.search_dense.return_value = [create_result("b" * 64), duplicate]
+    vector_store.search_sparse.return_value = [
+        duplicate.model_copy(update={"score": 0.4})
+    ]
+
+    response = service.search(
+        HybridSearchRequest(
+            query="remote work",
+            limit=2,
+            candidate_limit=10,
+            include_score_diagnostics=True,
+        )
+    )
+
+    diagnostic = response.results[0].score_diagnostics
+    assert diagnostic is not None
+    assert diagnostic.dense.weight == 2.0
+    assert diagnostic.sparse.weight == 3.0
+    assert diagnostic.dense.rank == 2
+    assert diagnostic.sparse.rank == 1
+    assert diagnostic.dense.rrf_contribution == pytest.approx(2.0 / 42)
+    assert diagnostic.sparse.rrf_contribution == pytest.approx(3.0 / 41)
+    assert diagnostic.fused_score == pytest.approx(
+        diagnostic.dense.rrf_contribution + diagnostic.sparse.rrf_contribution
     )
 
 
@@ -165,6 +200,7 @@ def test_search_passes_configured_weights_and_rrf_k_to_fusion() -> None:
         weights=[2.0, 0.75],
         limit=3,
         k=40,
+        include_score_diagnostics=False,
     )
 
 

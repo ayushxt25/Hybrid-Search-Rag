@@ -78,6 +78,7 @@ class HybridSearchService:
             ],
             limit=request.limit,
             k=self.rrf_k,
+            include_score_diagnostics=request.include_score_diagnostics,
         )
 
         return HybridSearchResponse(

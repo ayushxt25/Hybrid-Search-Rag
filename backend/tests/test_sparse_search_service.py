@@ -64,6 +64,7 @@ def test_search_encodes_query_and_returns_results() -> None:
     assert response.query == "remote work policy"
     assert response.result_count == 1
     assert response.results[0].chunk_id == CHUNK_ID
+    assert response.results[0].score_diagnostics is None
     sparse_embedding_provider.embed_query.assert_called_once_with("remote work policy")
     vector_store.search_sparse.assert_called_once_with(
         query_indices=[3, 9],
@@ -88,6 +89,26 @@ def test_search_forwards_filters() -> None:
         document_ids=[DOCUMENT_ID],
         content_types=["text/plain"],
     )
+
+
+def test_search_attaches_diagnostics_when_requested() -> None:
+    service, sparse_embedding_provider, vector_store = create_service()
+
+    response = service.search(
+        SparseSearchRequest(query="remote work", include_score_diagnostics=True)
+    )
+
+    diagnostic = response.results[0].score_diagnostics
+    assert diagnostic is not None
+    assert diagnostic.dense.raw_score is None
+    assert diagnostic.sparse.raw_score == 0.85
+    assert diagnostic.sparse.rank == 1
+    assert diagnostic.sparse.weight == 1.0
+    assert diagnostic.sparse.rrf_contribution == 0.0
+    assert diagnostic.fused_score == 0.85
+    assert diagnostic.fused_rank == 1
+    sparse_embedding_provider.embed_query.assert_called_once()
+    vector_store.search_sparse.assert_called_once()
 
 
 def test_search_returns_empty_results() -> None:

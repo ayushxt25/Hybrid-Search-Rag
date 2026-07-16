@@ -478,6 +478,15 @@ def test_filters_forwarded_to_hybrid_search() -> None:
         document_ids=hybrid_request.document_ids,
         content_types=hybrid_request.content_types,
     ) == RetrievalFilters(document_ids=[DOCUMENT_ID], content_types=["text/plain"])
+    assert hybrid_request.include_score_diagnostics is False
+
+
+def test_grounded_answer_result_excludes_score_diagnostics() -> None:
+    service, _, _, _, _ = create_service()
+
+    result = service.answer(GroundedAnswerRequest(question="What is the policy?"))
+
+    assert "score_diagnostics" not in result.model_dump()
 
 
 def test_no_filtered_evidence_skips_provider() -> None:

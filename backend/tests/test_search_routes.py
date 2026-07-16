@@ -10,7 +10,11 @@ from app.api.dependencies import (
 )
 from app.core.config import get_settings
 from app.main import app
-from app.schemas.search import DenseSearchResult
+from app.schemas.search import (
+    BranchScoreDiagnostic,
+    DenseSearchResult,
+    RetrievalScoreDiagnostic,
+)
 from app.schemas.search_request import DenseSearchResponse
 from app.vectorstore.exceptions import (
     VectorStoreConfigurationError,
@@ -70,6 +74,31 @@ def create_search_response() -> DenseSearchResponse:
     )
 
 
+def create_diagnostic_search_response() -> DenseSearchResponse:
+    response = create_search_response()
+    result = response.results[0].model_copy(
+        update={
+            "score_diagnostics": RetrievalScoreDiagnostic(
+                dense=BranchScoreDiagnostic(
+                    raw_score=0.91,
+                    rank=1,
+                    weight=1.0,
+                    rrf_contribution=0.0,
+                ),
+                sparse=BranchScoreDiagnostic(
+                    raw_score=None,
+                    rank=None,
+                    weight=1.0,
+                    rrf_contribution=0.0,
+                ),
+                fused_score=0.91,
+                fused_rank=1,
+            )
+        }
+    )
+    return response.model_copy(update={"results": [result]})
+
+
 def test_dense_search_returns_ranked_results() -> None:
     service = Mock()
     service.search.return_value = create_search_response()
@@ -93,8 +122,55 @@ def test_dense_search_returns_ranked_results() -> None:
     assert body["result_count"] == 1
     assert body["results"][0]["chunk_id"] == CHUNK_ID
     assert body["results"][0]["score"] == 0.91
+    assert "score_diagnostics" not in body["results"][0]
 
     service.search.assert_called_once()
+
+
+def test_dense_search_explicit_false_preserves_current_json() -> None:
+    service = Mock()
+    service.search.return_value = create_search_response()
+    override_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/dense",
+        json={"query": "remote work policy", "include_score_diagnostics": False},
+    )
+
+    assert response.status_code == 200
+    assert "score_diagnostics" not in response.json()["results"][0]
+
+
+def test_dense_search_true_includes_diagnostics() -> None:
+    service = Mock()
+    service.search.return_value = create_diagnostic_search_response()
+    override_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/dense",
+        json={"query": "remote work policy", "include_score_diagnostics": True},
+    )
+
+    assert response.status_code == 200
+    diagnostic = response.json()["results"][0]["score_diagnostics"]
+    assert diagnostic["dense"]["raw_score"] == 0.91
+    assert diagnostic["dense"]["rank"] == 1
+    assert diagnostic["sparse"]["raw_score"] is None
+    request = service.search.call_args.args[0]
+    assert request.include_score_diagnostics is True
+
+
+def test_dense_search_rejects_invalid_diagnostics_flag() -> None:
+    service = Mock()
+    override_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/dense",
+        json={"query": "remote work policy", "include_score_diagnostics": "yes"},
+    )
+
+    assert response.status_code == 422
+    service.search.assert_not_called()
 
 
 def test_dense_search_accepts_multiple_filters() -> None:

@@ -1,6 +1,6 @@
 from typing import Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StrictBool, model_validator
 
 from app.retrieval.filters import RetrievalFilters
 from app.schemas.search import DenseSearchResult
@@ -34,6 +34,7 @@ class DenseSearchRequest(RetrievalFilterRequestMixin):
     )
     document_ids: list[str] | None = None
     content_types: list[str] | None = None
+    include_score_diagnostics: StrictBool = False
 
 
 class DenseSearchResponse(BaseModel):
@@ -56,6 +57,7 @@ class SparseSearchRequest(RetrievalFilterRequestMixin):
     )
     document_ids: list[str] | None = None
     content_types: list[str] | None = None
+    include_score_diagnostics: StrictBool = False
 
 
 class SparseSearchResponse(BaseModel):
@@ -79,6 +81,7 @@ class HybridSearchRequest(RetrievalFilterRequestMixin):
     )
     document_ids: list[str] | None = None
     content_types: list[str] | None = None
+    include_score_diagnostics: StrictBool = False
 
     @model_validator(mode="after")
     def validate_candidate_limit(self) -> Self:
