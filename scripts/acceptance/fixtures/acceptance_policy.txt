@@ -1,0 +1,2 @@
+ACCEPTANCE_TXT_MARKER_4f7a9c remote handbook text for dense retrieval.
+The acceptance workflow uses this tiny TXT fixture.

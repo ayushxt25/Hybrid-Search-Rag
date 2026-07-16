@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     prompt_require_citations: bool = True
     prompt_allow_general_knowledge: bool = False
     generation_require_answer_citations: bool = True
+    generation_provider: str = "openai"
     grounded_answer_rate_limit_enabled: bool = True
     grounded_answer_rate_limit_requests: int = Field(default=10, gt=0)
     grounded_answer_rate_limit_window_seconds: int = Field(default=60, gt=0)
@@ -117,6 +118,14 @@ class Settings(BaseSettings):
             raise ValueError("hybrid weights must be greater than zero.")
 
         return value
+
+    @field_validator("generation_provider")
+    @classmethod
+    def validate_generation_provider(cls, value: str) -> str:
+        normalized_value = value.strip().lower()
+        if normalized_value not in {"openai", "deterministic"}:
+            raise ValueError("generation_provider must be openai or deterministic.")
+        return normalized_value
 
     @field_validator("cors_allow_credentials")
     @classmethod

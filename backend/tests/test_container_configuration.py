@@ -39,6 +39,10 @@ def test_compose_contains_api_and_qdrant_services() -> None:
     assert "api:" in compose
     assert "qdrant:" in compose
     assert "QDRANT_URL: http://qdrant:6333" in compose
+    assert (
+        "QDRANT_HYBRID_COLLECTION_NAME: "
+        "${QDRANT_HYBRID_COLLECTION_NAME:-internal_document_chunks_hybrid}" in compose
+    )
     assert "8000:8000" in compose
     assert "env_file:" in compose
     assert "condition: service_healthy" in compose

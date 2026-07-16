@@ -179,6 +179,39 @@ prompting, answer route, and citation validation pipeline, but replaces OpenAI
 with a deterministic in-process stub, so no API key or generation credits are
 used. Success validates citation markers and source metadata.
 
+## Docker-Backed Acceptance Test
+
+`python scripts/acceptance/run_acceptance.py` runs a Docker-backed acceptance
+workflow against the public HTTP API and real Qdrant service. It verifies
+liveness, TXT/Markdown/PDF/DOCX ingestion, document listing/detail,
+dense/sparse/hybrid retrieval, score diagnostics, metadata filters, document
+replacement, deletion, grounded answers, and cleanup.
+
+Prerequisites: Docker Compose services must be running and reachable at
+`ACCEPTANCE_API_BASE_URL` or `http://127.0.0.1:8000`. OpenAI is not required
+when the API is started with `GENERATION_PROVIDER=deterministic`; that provider
+is acceptance-only and never enabled by default.
+
+Recommended isolated startup:
+
+```bash
+QDRANT_HYBRID_COLLECTION_NAME=internal_document_chunks_acceptance \
+GENERATION_PROVIDER=deterministic \
+READINESS_ENABLED=false \
+docker compose up -d --build
+python scripts/acceptance/run_acceptance.py
+```
+
+Set `ACCEPTANCE_API_KEY` when API-key authentication is enabled. The runner uses
+small deterministic fixtures, creates PDF/DOCX fixtures locally at runtime, and
+deletes the documents it creates in best-effort cleanup unless `--keep-data` is
+passed. Unit tests do not start Docker; the acceptance workflow is an explicit
+end-to-end check. Successful output ends with:
+
+```text
+Acceptance workflow passed: 14/14 checks
+```
+
 
 ## Request Observability
 

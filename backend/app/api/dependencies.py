@@ -10,6 +10,8 @@ from app.documents.service import DocumentManagementService
 from app.embeddings.sentence_transformer import (
     SentenceTransformerEmbeddingProvider,
 )
+from app.generation.base import GenerationProvider
+from app.generation.deterministic import DeterministicAcceptanceGenerationProvider
 from app.generation.openai import OpenAIGenerationProvider
 from app.generation.service import GroundedAnswerService
 from app.health.service import ReadinessService
@@ -59,9 +61,11 @@ def get_sparse_embedding_provider() -> HashedLexicalSparseProvider:
 
 
 @lru_cache
-def get_generation_provider() -> OpenAIGenerationProvider:
+def get_generation_provider() -> GenerationProvider:
     """Return the shared production generation provider."""
     settings = get_settings()
+    if getattr(settings, "generation_provider", "openai") == "deterministic":
+        return DeterministicAcceptanceGenerationProvider()
 
     return _register_closeable(
         OpenAIGenerationProvider(
