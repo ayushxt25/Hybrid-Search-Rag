@@ -1,4 +1,42 @@
 services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hybrid-search-rag-api
+    restart: unless-stopped
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      QDRANT_URL: http://qdrant:6333
+      TRUSTED_HOSTS: '["localhost","127.0.0.1","api","testserver"]'
+      HF_HOME: /home/appuser/.cache/huggingface
+    ports:
+      - "8000:8000"
+    tmpfs:
+      - /tmp
+    volumes:
+      - huggingface_cache:/home/appuser/.cache/huggingface
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live', timeout=5).read()",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
   qdrant:
     image: qdrant/qdrant:latest
     container_name: hybrid-search-rag-qdrant
@@ -8,6 +46,19 @@ services:
       - "127.0.0.1:6334:6334"
     volumes:
       - qdrant_storage:/qdrant/storage
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bash",
+          "-c",
+          "exec 3<>/dev/tcp/127.0.0.1/6333 && printf \"GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && grep -q \"200 OK\" <&3",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
+  huggingface_cache:
   qdrant_storage:
