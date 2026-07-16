@@ -17,6 +17,7 @@ from app.observability.models import GroundedAnswerTimings
 from app.observability.request_context import get_request_id
 from app.prompting.builder import GroundedPromptBuilder
 from app.prompting.models import GroundedPromptPackage
+from app.retrieval.filters import RetrievalFilters
 from app.schemas.search_request import HybridSearchRequest
 from app.services.hybrid_search import HybridSearchService
 
@@ -75,6 +76,8 @@ class GroundedAnswerService:
                     limit=request.limit,
                     candidate_limit=request.candidate_limit,
                     document_id=request.document_id,
+                    document_ids=request.document_ids,
+                    content_types=request.content_types,
                 )
             )
             retrieval_ms = self._elapsed_ms(stage_start)
@@ -146,7 +149,7 @@ class GroundedAnswerService:
             )
             if self.timing_callback is not None:
                 self.timing_callback(timings)
-            self._log_success(result=result, timings=timings)
+            self._log_success(result=result, timings=timings, request=request)
             return result
         except Exception as error:
             self._log_failure(
@@ -165,9 +168,16 @@ class GroundedAnswerService:
         *,
         result: GroundedAnswerResult,
         timings: GroundedAnswerTimings,
+        request: GroundedAnswerRequest,
     ) -> None:
         if not self.observability_enabled:
             return
+
+        filters = RetrievalFilters.from_legacy(
+            document_id=request.document_id,
+            document_ids=request.document_ids,
+            content_types=request.content_types,
+        )
 
         logger.info(
             "grounded_answer_completed",
@@ -182,6 +192,9 @@ class GroundedAnswerService:
                 "model_name": result.model_name,
                 "finish_reason": result.finish_reason,
                 "citation_marker_count": len(result.citation_markers),
+                "filter_document_count": len(filters.document_ids),
+                "filter_content_type_count": len(filters.content_types),
+                "filtered": bool(filters.document_ids or filters.content_types),
                 "retrieval_ms": timings.retrieval_ms,
                 "context_assembly_ms": timings.context_assembly_ms,
                 "prompt_construction_ms": timings.prompt_construction_ms,

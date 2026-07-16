@@ -2,6 +2,8 @@ from typing import Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.retrieval.filters import RetrievalFilters
+
 
 class GenerationOutput(BaseModel):
     """Provider output with character-count accounting."""
@@ -43,12 +45,19 @@ class GroundedAnswerRequest(BaseModel):
     limit: int = Field(default=5, ge=1, le=50)
     candidate_limit: int = Field(default=20, ge=1, le=100)
     document_id: str | None = Field(default=None, min_length=64, max_length=64)
+    document_ids: list[str] | None = None
+    content_types: list[str] | None = None
 
     @model_validator(mode="after")
     def validate_candidate_limit(self) -> Self:
         if self.candidate_limit < self.limit:
             raise ValueError("candidate_limit must be greater than or equal to limit.")
 
+        RetrievalFilters.from_legacy(
+            document_id=self.document_id,
+            document_ids=self.document_ids,
+            content_types=self.content_types,
+        )
         return self
 
 

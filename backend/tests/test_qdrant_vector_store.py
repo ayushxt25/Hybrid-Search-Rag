@@ -8,6 +8,7 @@ from app.embeddings.sentence_transformer import (
     SentenceTransformerEmbeddingProvider,
 )
 from app.ingestion.pipeline import DocumentIngestionPipeline
+from app.retrieval.filters import RetrievalFilters
 from app.schemas.embedding import ChunkEmbedding, ChunkSparseEmbedding
 from app.sparse.hashed_lexical import HashedLexicalSparseProvider
 from app.vectorstore.exceptions import (
@@ -384,6 +385,45 @@ def test_search_can_filter_by_document_id(
     )
 
 
+def test_dense_search_supports_multi_document_and_content_type_filters(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    remote_document = create_ingested_document(
+        tmp_path,
+        file_name="remote.txt",
+        content="Employees may work remotely three days per week.",
+    )
+    markdown_document = create_ingested_document(
+        tmp_path,
+        file_name="remote.md",
+        content="Markdown remote work policy.",
+    )
+    for document in (remote_document, markdown_document):
+        sparse_vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=create_dense_embeddings(document),
+            sparse_embeddings=create_sparse_embeddings(document),
+        )
+
+    results = sparse_vector_store.search_dense(
+        query_vector=[1.0, 0.0, 0.0, 0.0],
+        limit=10,
+        filters=RetrievalFilters(
+            document_ids=[
+                remote_document.document.document_id,
+                markdown_document.document.document_id,
+            ],
+            content_types=["text/markdown"],
+        ),
+    )
+
+    assert results
+    assert {result.document_id for result in results} == {
+        markdown_document.document.document_id
+    }
+
+
 def test_sparse_search_retrieves_lexical_match(
     tmp_path: Path,
     sparse_vector_store: QdrantVectorStore,
@@ -448,6 +488,42 @@ def test_sparse_search_supports_document_id_filtering(
     assert all(
         result.document_id == travel_document.document.document_id for result in results
     )
+
+
+def test_sparse_search_supports_content_type_filtering(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    text_document = create_ingested_document(
+        tmp_path,
+        file_name="policy.txt",
+        content="Remote device policy allows employees to work from home.",
+    )
+    markdown_document = create_ingested_document(
+        tmp_path,
+        file_name="policy.md",
+        content="Remote device policy for markdown documents.",
+    )
+    sparse_provider = HashedLexicalSparseProvider()
+    for document in (text_document, markdown_document):
+        sparse_vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=create_dense_embeddings(document),
+            sparse_embeddings=sparse_provider.embed_chunks(document.chunks),
+        )
+
+    query_embedding = sparse_provider.embed_query("remote policy")
+    results = sparse_vector_store.search_sparse(
+        query_indices=query_embedding.indices,
+        query_values=query_embedding.values,
+        limit=10,
+        filters=RetrievalFilters(content_types=["text/markdown"]),
+    )
+
+    assert results
+    assert {result.document_id for result in results} == {
+        markdown_document.document.document_id
+    }
 
 
 def test_delete_document_removes_its_points(

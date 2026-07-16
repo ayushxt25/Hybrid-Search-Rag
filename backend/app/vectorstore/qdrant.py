@@ -5,6 +5,7 @@ from typing import Any
 from qdrant_client import QdrantClient, models
 from qdrant_client.http.exceptions import UnexpectedResponse
 
+from app.retrieval.filters import RetrievalFilters
 from app.schemas.document import IngestedDocument, TextChunk
 from app.schemas.documents import IndexedDocumentDetail, IndexedDocumentSummary
 from app.schemas.embedding import ChunkEmbedding, ChunkSparseEmbedding
@@ -20,6 +21,36 @@ DENSE_VECTOR_NAME = "dense"
 SPARSE_VECTOR_NAME = "sparse"
 DOCUMENT_SCROLL_BATCH_SIZE = 256
 DOCUMENT_SCAN_POINT_LIMIT = 10_000
+CONTENT_TYPE_BY_EXTENSION = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+def _match_condition(key: str, values: list[str]) -> models.FieldCondition:
+    if len(values) == 1:
+        return models.FieldCondition(
+            key=key,
+            match=models.MatchValue(value=values[0]),
+        )
+    return models.FieldCondition(
+        key=key,
+        match=models.MatchAny(any=values),
+    )
+
+
+def build_qdrant_filter(filters: RetrievalFilters) -> models.Filter | None:
+    """Build a Qdrant payload filter from validated retrieval filters."""
+    must = []
+    if filters.document_ids:
+        must.append(_match_condition("document_id", filters.document_ids))
+    if filters.content_types:
+        must.append(_match_condition("content_type", filters.content_types))
+    if not must:
+        return None
+    return models.Filter(must=must)
 
 
 class QdrantVectorStore:
@@ -406,6 +437,7 @@ class QdrantVectorStore:
             "content_hash": document.content_hash,
             "file_name": document.file_name,
             "file_extension": document.file_extension,
+            "content_type": CONTENT_TYPE_BY_EXTENSION.get(document.file_extension),
             "chunk_index": chunk.chunk_index,
             "section_index": chunk.section_index,
             "page_number": chunk.page_number,
@@ -423,6 +455,7 @@ class QdrantVectorStore:
         limit: int = 5,
         score_threshold: float | None = None,
         document_id: str | None = None,
+        filters: RetrievalFilters | None = None,
     ) -> list[DenseSearchResult]:
         """Return chunks nearest to a dense query vector."""
         if len(query_vector) != self.vector_dimensions:
@@ -433,7 +466,9 @@ class QdrantVectorStore:
         if limit <= 0:
             raise ValueError("limit must be greater than zero.")
 
-        query_filter = self._build_document_filter(document_id)
+        query_filter = build_qdrant_filter(
+            filters or RetrievalFilters.from_legacy(document_id=document_id)
+        )
 
         try:
             response = self.client.query_points(
@@ -465,6 +500,7 @@ class QdrantVectorStore:
         query_values: Sequence[float],
         limit: int = 5,
         document_id: str | None = None,
+        filters: RetrievalFilters | None = None,
     ) -> list[DenseSearchResult]:
         """Return chunks nearest to a sparse lexical query vector."""
         self._require_sparse_enabled("Sparse search")
@@ -477,7 +513,9 @@ class QdrantVectorStore:
         if limit <= 0:
             raise ValueError("limit must be greater than zero.")
 
-        query_filter = self._build_document_filter(document_id)
+        query_filter = build_qdrant_filter(
+            filters or RetrievalFilters.from_legacy(document_id=document_id)
+        )
 
         try:
             response = self.client.query_points(
@@ -688,30 +726,6 @@ class QdrantVectorStore:
             raise VectorStoreConnectionError(
                 "Unable to count document vectors in Qdrant."
             ) from error
-
-    @staticmethod
-    def _build_document_filter(
-        document_id: str | None,
-    ) -> models.Filter | None:
-        """Build an optional Qdrant document filter."""
-        if document_id is None:
-            return None
-
-        normalized_document_id = document_id.strip()
-
-        if not normalized_document_id:
-            raise ValueError("document_id cannot be empty.")
-
-        return models.Filter(
-            must=[
-                models.FieldCondition(
-                    key="document_id",
-                    match=models.MatchValue(
-                        value=normalized_document_id,
-                    ),
-                )
-            ]
-        )
 
     @staticmethod
     def _build_required_document_filter(document_id: str) -> models.Filter:

@@ -97,6 +97,28 @@ def test_dense_search_returns_ranked_results() -> None:
     service.search.assert_called_once()
 
 
+def test_dense_search_accepts_multiple_filters() -> None:
+    service = Mock()
+    service.search.return_value = create_search_response()
+    override_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/dense",
+        json={
+            "query": "remote work policy",
+            "document_id": DOCUMENT_ID,
+            "document_ids": [DOCUMENT_ID],
+            "content_types": ["text/plain"],
+        },
+    )
+
+    assert response.status_code == 200
+    request = service.search.call_args.args[0]
+    assert request.document_id == DOCUMENT_ID
+    assert request.document_ids == [DOCUMENT_ID]
+    assert request.content_types == ["text/plain"]
+
+
 def test_dense_search_rejects_empty_query() -> None:
     service = Mock()
     override_search_service(service)
@@ -231,6 +253,26 @@ def test_sparse_search_returns_ranked_results() -> None:
     assert body["results"][0]["score"] == 0.91
 
     service.search.assert_called_once()
+
+
+def test_sparse_search_accepts_content_type_filter() -> None:
+    service = Mock()
+    service.search.return_value = create_search_response()
+    override_sparse_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/sparse",
+        json={
+            "query": "remote work policy",
+            "document_ids": [DOCUMENT_ID],
+            "content_types": ["application/pdf"],
+        },
+    )
+
+    assert response.status_code == 200
+    request = service.search.call_args.args[0]
+    assert request.document_ids == [DOCUMENT_ID]
+    assert request.content_types == ["application/pdf"]
 
 
 def test_sparse_search_rejects_empty_query() -> None:
@@ -368,6 +410,41 @@ def test_hybrid_search_returns_fused_results() -> None:
     assert body["results"][0]["score"] == 0.91
 
     service.search.assert_called_once()
+
+
+def test_hybrid_search_rejects_invalid_filters() -> None:
+    service = Mock()
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={
+            "query": "remote work",
+            "document_ids": ["bad-id"],
+            "content_types": ["application/json"],
+        },
+    )
+
+    assert response.status_code == 422
+    service.search.assert_not_called()
+
+
+def test_hybrid_search_returns_empty_filtered_response() -> None:
+    service = Mock()
+    service.search.return_value = DenseSearchResponse(
+        query="remote work",
+        result_count=0,
+        results=[],
+    )
+    override_hybrid_search_service(service)
+
+    response = client.post(
+        "/api/v1/search/hybrid",
+        json={"query": "remote work", "document_ids": [DOCUMENT_ID]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["results"] == []
 
 
 def test_hybrid_search_rejects_candidate_limit_smaller_than_limit() -> None:

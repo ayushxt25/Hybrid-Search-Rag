@@ -1,4 +1,5 @@
 from app.embeddings.base import DenseEmbeddingProvider
+from app.retrieval.filters import RetrievalFilters
 from app.schemas.search_request import (
     DenseSearchRequest,
     DenseSearchResponse,
@@ -28,6 +29,11 @@ class DenseSearchService:
         if not normalized_query:
             raise ValueError("query cannot be empty.")
 
+        filters = RetrievalFilters.from_legacy(
+            document_id=request.document_id,
+            document_ids=request.document_ids,
+            content_types=request.content_types,
+        )
         query_embedding = self.embedding_provider.embed_query(normalized_query)
 
         if query_embedding.dimensions != self.vector_store.vector_dimensions:
@@ -39,7 +45,7 @@ class DenseSearchService:
             query_vector=query_embedding.vector,
             limit=request.limit,
             score_threshold=request.score_threshold,
-            document_id=request.document_id,
+            filters=filters,
         )
 
         return DenseSearchResponse(

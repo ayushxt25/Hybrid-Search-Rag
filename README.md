@@ -4,6 +4,50 @@ Hybrid retrieval ranks candidate chunks with dense and sparse search. The
 context assembly layer then converts those ranked chunks into a deterministic,
 citation-ready context package before any generation step.
 
+Dense, sparse, hybrid, and grounded-answer retrieval support scoped retrieval
+with the legacy `document_id` field, `document_ids` arrays, and `content_types`
+arrays. `document_id` is merged into `document_ids` when both are supplied, with
+duplicates removed. Supported content types are `text/plain`, `text/markdown`,
+`application/pdf`, and
+`application/vnd.openxmlformats-officedocument.wordprocessingml.document`.
+Filters are applied inside Qdrant before ranking and fusion; results are not
+post-filtered in application code. Unknown but valid document IDs return normal
+empty result sets. Actual document IDs and content-type values are not logged.
+Requests may include up to 20 document IDs and 10 content types.
+
+Dense search:
+
+```json
+{
+  "query": "remote work policy",
+  "document_ids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+  "content_types": ["text/plain"]
+}
+```
+
+Sparse search:
+
+```json
+{
+  "query": "remote policy",
+  "document_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "content_types": ["text/markdown"]
+}
+```
+
+Hybrid search:
+
+```json
+{
+  "query": "travel reimbursement",
+  "document_ids": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  ],
+  "content_types": ["application/pdf"]
+}
+```
+
 Context assembly selects complete chunks under a fixed character budget. Chunk
 text is never cut, metadata headers and separators count toward the budget, and
 source numbers are assigned before generation so answers can cite stable source
@@ -50,10 +94,19 @@ source. Factual citation verification remains a later stage.
 ## Grounded Answer API
 
 `POST /api/v1/answers/grounded` accepts `question`, `limit`,
-`candidate_limit`, and optional `document_id`, then returns a grounded answer
-with structured `citations`, emitted `citation_markers`, context metadata, and
-model metadata. If retrieval finds no evidence, the service returns the
-deterministic insufficient-context answer without invoking OpenAI.
+`candidate_limit`, optional `document_id`, `document_ids`, and `content_types`,
+then returns a grounded answer with structured `citations`, emitted
+`citation_markers`, context metadata, and model metadata. If retrieval finds no
+evidence, the service returns the deterministic insufficient-context answer
+without invoking OpenAI.
+
+```json
+{
+  "question": "What is the remote work policy?",
+  "document_ids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+  "content_types": ["text/plain"]
+}
+```
 
 Only grounded-answer generation is rate limited. By default, each client
 address may make 10 requests per 60 seconds. Responses include

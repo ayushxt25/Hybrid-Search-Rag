@@ -186,6 +186,8 @@ def test_grounded_answer_forwards_request_fields() -> None:
             "limit": 7,
             "candidate_limit": 25,
             "document_id": DOCUMENT_ID,
+            "document_ids": [DOCUMENT_ID],
+            "content_types": ["text/plain"],
         }
     )
 
@@ -195,6 +197,8 @@ def test_grounded_answer_forwards_request_fields() -> None:
     assert request.limit == 7
     assert request.candidate_limit == 25
     assert request.document_id == DOCUMENT_ID
+    assert request.document_ids == [DOCUMENT_ID]
+    assert request.content_types == ["text/plain"]
 
 
 def test_grounded_answer_returns_insufficient_context_response() -> None:
@@ -222,6 +226,8 @@ def test_grounded_answer_returns_insufficient_context_response() -> None:
         {"question": "remote work", "limit": 0},
         {"question": "remote work", "limit": 10, "candidate_limit": 5},
         {"question": "remote work", "document_id": "bad-id"},
+        {"question": "remote work", "document_ids": ["bad-id"]},
+        {"question": "remote work", "content_types": ["application/json"]},
     ],
 )
 def test_grounded_answer_rejects_invalid_requests_before_service(

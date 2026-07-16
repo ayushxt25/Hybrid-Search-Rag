@@ -9,6 +9,7 @@ from app.generation.service import (
     GroundedAnswerService,
 )
 from app.prompting.models import GroundedPromptPackage
+from app.retrieval.filters import RetrievalFilters
 from app.schemas.search import DenseSearchResult
 from app.schemas.search_request import HybridSearchResponse
 
@@ -459,6 +460,52 @@ def test_input_objects_are_not_mutated() -> None:
     assert request == original_request
 
 
+def test_filters_forwarded_to_hybrid_search() -> None:
+    service, search_service, _, _, _ = create_service()
+
+    service.answer(
+        GroundedAnswerRequest(
+            question="What is the policy?",
+            document_id=DOCUMENT_ID,
+            document_ids=[DOCUMENT_ID],
+            content_types=["TEXT/PLAIN"],
+        )
+    )
+
+    hybrid_request = search_service.search.call_args.args[0]
+    assert RetrievalFilters.from_legacy(
+        document_id=hybrid_request.document_id,
+        document_ids=hybrid_request.document_ids,
+        content_types=hybrid_request.content_types,
+    ) == RetrievalFilters(document_ids=[DOCUMENT_ID], content_types=["text/plain"])
+
+
+def test_no_filtered_evidence_skips_provider() -> None:
+    empty_response = HybridSearchResponse(
+        query="What is the policy?",
+        result_count=0,
+        results=[],
+    )
+    empty_context = create_context(source_count=0)
+    provider = StubGenerationProvider()
+    service, _, _, _, provider = create_service(
+        hybrid_response=empty_response,
+        assembled_context=empty_context,
+        prompt_package=create_prompt_package(context=empty_context),
+        provider=provider,
+    )
+
+    result = service.answer(
+        GroundedAnswerRequest(
+            question="What is the policy?",
+            document_ids=[DOCUMENT_ID],
+        )
+    )
+
+    assert result.insufficient_context is True
+    assert provider.calls == []
+
+
 def test_timing_callback_called_once_on_success() -> None:
     timings = []
     service, _, _, _, _ = create_service(timing_callback=timings.append)
@@ -502,7 +549,13 @@ def test_completion_log_contains_safe_metadata(caplog) -> None:
     service, _, _, _, _ = create_service()
 
     with caplog.at_level("INFO", logger="app.grounded_answer"):
-        service.answer(GroundedAnswerRequest(question="SECRET question?"))
+        service.answer(
+            GroundedAnswerRequest(
+                question="SECRET question?",
+                document_ids=[DOCUMENT_ID],
+                content_types=["text/plain"],
+            )
+        )
 
     record = next(
         record
@@ -517,6 +570,9 @@ def test_completion_log_contains_safe_metadata(caplog) -> None:
     assert record.model_name == "stub-model"
     assert record.finish_reason == "stop"
     assert record.citation_marker_count == 1
+    assert record.filter_document_count == 1
+    assert record.filter_content_type_count == 1
+    assert record.filtered is True
     assert record.retrieval_ms >= 0
     assert record.context_assembly_ms >= 0
     assert record.prompt_construction_ms >= 0
@@ -528,6 +584,7 @@ def test_completion_log_contains_safe_metadata(caplog) -> None:
     assert "system" not in log_text
     assert "user" not in log_text
     assert DOCUMENT_ID not in log_text
+    assert "text/plain" not in log_text
     assert "policy.txt" not in log_text
 
 

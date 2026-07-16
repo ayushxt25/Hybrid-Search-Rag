@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.embeddings.base import DenseEmbeddingProvider
+from app.retrieval.filters import RetrievalFilters
 from app.schemas.embedding import QueryEmbedding
 from app.schemas.search import DenseSearchResult
 from app.schemas.search_request import DenseSearchRequest
@@ -77,7 +78,24 @@ def test_search_embeds_query_and_returns_results() -> None:
         query_vector=[0.0] * 384,
         limit=3,
         score_threshold=0.5,
-        document_id=DOCUMENT_ID,
+        filters=RetrievalFilters(document_ids=[DOCUMENT_ID]),
+    )
+
+
+def test_search_forwards_filters() -> None:
+    service, _, vector_store = create_service()
+
+    service.search(
+        DenseSearchRequest(
+            query="remote work",
+            document_ids=[DOCUMENT_ID, DOCUMENT_ID],
+            content_types=["TEXT/PLAIN"],
+        )
+    )
+
+    assert vector_store.search_dense.call_args.kwargs["filters"] == RetrievalFilters(
+        document_ids=[DOCUMENT_ID],
+        content_types=["text/plain"],
     )
 
 
@@ -99,6 +117,8 @@ def test_search_rejects_whitespace_query() -> None:
         limit=5,
         score_threshold=None,
         document_id=None,
+        document_ids=None,
+        content_types=None,
     )
 
     with pytest.raises(

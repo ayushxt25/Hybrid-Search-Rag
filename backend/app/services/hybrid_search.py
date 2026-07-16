@@ -1,6 +1,7 @@
 from math import isfinite
 
 from app.embeddings.base import DenseEmbeddingProvider
+from app.retrieval.filters import RetrievalFilters
 from app.retrieval.rrf import reciprocal_rank_fusion
 from app.schemas.search_request import (
     HybridSearchRequest,
@@ -49,19 +50,24 @@ class HybridSearchService:
         if not normalized_query:
             raise ValueError("query cannot be empty.")
 
+        filters = RetrievalFilters.from_legacy(
+            document_id=request.document_id,
+            document_ids=request.document_ids,
+            content_types=request.content_types,
+        )
         dense_embedding = self.embedding_provider.embed_query(normalized_query)
         sparse_embedding = self.sparse_embedding_provider.embed_query(normalized_query)
 
         dense_results = self.vector_store.search_dense(
             query_vector=dense_embedding.vector,
             limit=request.candidate_limit,
-            document_id=request.document_id,
+            filters=filters,
         )
         sparse_results = self.vector_store.search_sparse(
             query_indices=sparse_embedding.indices,
             query_values=sparse_embedding.values,
             limit=request.candidate_limit,
-            document_id=request.document_id,
+            filters=filters,
         )
 
         fused_results = reciprocal_rank_fusion(

@@ -2,6 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from app.retrieval.filters import RetrievalFilters
 from app.schemas.embedding import QuerySparseEmbedding
 from app.schemas.search import DenseSearchResult
 from app.schemas.search_request import SparseSearchRequest
@@ -68,7 +69,24 @@ def test_search_encodes_query_and_returns_results() -> None:
         query_indices=[3, 9],
         query_values=[1.0, 2.0],
         limit=3,
-        document_id=DOCUMENT_ID,
+        filters=RetrievalFilters(document_ids=[DOCUMENT_ID]),
+    )
+
+
+def test_search_forwards_filters() -> None:
+    service, _, vector_store = create_service()
+
+    service.search(
+        SparseSearchRequest(
+            query="remote work",
+            document_ids=[DOCUMENT_ID],
+            content_types=["text/plain"],
+        )
+    )
+
+    assert vector_store.search_sparse.call_args.kwargs["filters"] == RetrievalFilters(
+        document_ids=[DOCUMENT_ID],
+        content_types=["text/plain"],
     )
 
 
@@ -89,6 +107,8 @@ def test_search_rejects_whitespace_query() -> None:
         query="   ",
         limit=5,
         document_id=None,
+        document_ids=None,
+        content_types=None,
     )
 
     with pytest.raises(

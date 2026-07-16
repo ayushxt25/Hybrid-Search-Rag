@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from app.embeddings.base import DenseEmbeddingProvider
+from app.retrieval.filters import RetrievalFilters
 from app.schemas.embedding import QueryEmbedding, QuerySparseEmbedding
 from app.schemas.search import DenseSearchResult
 from app.schemas.search_request import HybridSearchRequest
@@ -97,13 +98,13 @@ def test_search_retrieves_candidates_and_fuses_results() -> None:
     vector_store.search_dense.assert_called_once_with(
         query_vector=[0.0] * 384,
         limit=10,
-        document_id=DOCUMENT_ID,
+        filters=RetrievalFilters(document_ids=[DOCUMENT_ID]),
     )
     vector_store.search_sparse.assert_called_once_with(
         query_indices=[3, 9],
         query_values=[1.0, 2.0],
         limit=10,
-        document_id=DOCUMENT_ID,
+        filters=RetrievalFilters(document_ids=[DOCUMENT_ID]),
     )
     fusion.assert_called_once_with(
         [
@@ -113,6 +114,26 @@ def test_search_retrieves_candidates_and_fuses_results() -> None:
         weights=[1.5, 1.0],
         limit=3,
         k=60,
+    )
+
+
+def test_search_forwards_identical_filter_to_both_branches() -> None:
+    service, _, _, vector_store = create_service()
+
+    service.search(
+        HybridSearchRequest(
+            query="remote work",
+            document_ids=[DOCUMENT_ID],
+            content_types=["text/plain"],
+        )
+    )
+
+    dense_filters = vector_store.search_dense.call_args.kwargs["filters"]
+    sparse_filters = vector_store.search_sparse.call_args.kwargs["filters"]
+    assert dense_filters == sparse_filters
+    assert dense_filters == RetrievalFilters(
+        document_ids=[DOCUMENT_ID],
+        content_types=["text/plain"],
     )
 
 
@@ -214,6 +235,8 @@ def test_search_rejects_whitespace_query() -> None:
         limit=5,
         candidate_limit=20,
         document_id=None,
+        document_ids=None,
+        content_types=None,
     )
 
     with pytest.raises(

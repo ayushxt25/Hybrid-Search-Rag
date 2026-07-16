@@ -2,10 +2,22 @@ from typing import Self
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.retrieval.filters import RetrievalFilters
 from app.schemas.search import DenseSearchResult
 
 
-class DenseSearchRequest(BaseModel):
+class RetrievalFilterRequestMixin(BaseModel):
+    @model_validator(mode="after")
+    def validate_retrieval_filters(self) -> Self:
+        RetrievalFilters.from_legacy(
+            document_id=self.document_id,
+            document_ids=self.document_ids,
+            content_types=self.content_types,
+        )
+        return self
+
+
+class DenseSearchRequest(RetrievalFilterRequestMixin):
     """Input accepted by the dense-search endpoint."""
 
     query: str = Field(min_length=1, max_length=2000)
@@ -20,6 +32,8 @@ class DenseSearchRequest(BaseModel):
         min_length=64,
         max_length=64,
     )
+    document_ids: list[str] | None = None
+    content_types: list[str] | None = None
 
 
 class DenseSearchResponse(BaseModel):
@@ -30,7 +44,7 @@ class DenseSearchResponse(BaseModel):
     results: list[DenseSearchResult]
 
 
-class SparseSearchRequest(BaseModel):
+class SparseSearchRequest(RetrievalFilterRequestMixin):
     """Input accepted by the sparse-search endpoint."""
 
     query: str = Field(min_length=1, max_length=2000)
@@ -40,6 +54,8 @@ class SparseSearchRequest(BaseModel):
         min_length=64,
         max_length=64,
     )
+    document_ids: list[str] | None = None
+    content_types: list[str] | None = None
 
 
 class SparseSearchResponse(BaseModel):
@@ -50,7 +66,7 @@ class SparseSearchResponse(BaseModel):
     results: list[DenseSearchResult]
 
 
-class HybridSearchRequest(BaseModel):
+class HybridSearchRequest(RetrievalFilterRequestMixin):
     """Input accepted by the hybrid-search endpoint."""
 
     query: str = Field(min_length=1, max_length=2000)
@@ -61,6 +77,8 @@ class HybridSearchRequest(BaseModel):
         min_length=64,
         max_length=64,
     )
+    document_ids: list[str] | None = None
+    content_types: list[str] | None = None
 
     @model_validator(mode="after")
     def validate_candidate_limit(self) -> Self:
