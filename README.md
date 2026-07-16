@@ -212,6 +212,41 @@ end-to-end check. Successful output ends with:
 Acceptance workflow passed: 14/14 checks
 ```
 
+## Frontend Foundation
+
+`frontend/` contains the React foundation for Hybrid Search Studio, a
+recruiter-facing developer tool for demonstrating ingestion, retrieval,
+diagnostics, grounded answers, and health status. The stack is React,
+TypeScript, Vite, Tailwind CSS, React Router, TanStack Query, Lucide React,
+Vitest, React Testing Library, ESLint, and Prettier.
+
+Setup:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Configure the backend URL with:
+
+```text
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Production build:
+
+```bash
+npm run build
+```
+
+Implemented routes are `/overview`, `/documents`, `/retrieval`, `/answers`,
+`/system`, and a not-found route. This stage provides the application shell,
+design system, API client foundation, health integration, and intentional
+placeholder pages; full document, retrieval, and grounded-answer UI workflows
+are not implemented yet.
+
 
 ## Request Observability
 

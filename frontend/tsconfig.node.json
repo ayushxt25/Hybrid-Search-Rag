@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
+    "checkJs": false,
+    "allowSyntheticDefaultImports": true,
+    "strict": true
+  },
+  "include": ["eslint.config.js", "postcss.config.js", "tailwind.config.js"]
+}
