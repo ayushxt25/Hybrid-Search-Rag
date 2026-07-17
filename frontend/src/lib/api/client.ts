@@ -2,6 +2,7 @@ export class ApiError extends Error {
   status: number;
   requestId?: string;
   retryAfter?: string;
+  body?: unknown;
   detail: string;
 
   constructor(
@@ -10,6 +11,7 @@ export class ApiError extends Error {
       status: number;
       requestId?: string;
       retryAfter?: string;
+      body?: unknown;
       detail: string;
     },
   ) {
@@ -18,6 +20,7 @@ export class ApiError extends Error {
     this.status = options.status;
     this.requestId = options.requestId;
     this.retryAfter = options.retryAfter;
+    this.body = options.body;
     this.detail = options.detail;
   }
 }
@@ -114,6 +117,7 @@ export class ApiClient {
           status: response.status,
           requestId,
           retryAfter,
+          body,
           detail,
         });
       }
