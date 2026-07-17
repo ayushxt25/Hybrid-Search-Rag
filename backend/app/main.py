@@ -9,6 +9,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.api.dependencies import shutdown_dependencies
 from app.api.router import api_router
 from app.core.config import get_settings
+from app.observability.logging import SafeJsonFormatter
 from app.observability.middleware import RequestIDMiddleware
 from app.security.middleware import (
     JsonRequestSizeLimitMiddleware,
@@ -18,9 +19,15 @@ from app.security.middleware import (
 
 def configure_logging(log_level: str) -> None:
     level = getattr(logging, log_level)
-    if not logging.getLogger().handlers:
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
         logging.basicConfig(level=level)
+    root_logger.setLevel(level)
+    formatter = SafeJsonFormatter()
+    for handler in root_logger.handlers:
+        handler.setFormatter(formatter)
     logging.getLogger("app.grounded_answer").setLevel(level)
+    logging.getLogger("app.observability").setLevel(level)
 
 
 @asynccontextmanager
@@ -56,7 +63,13 @@ def create_application() -> FastAPI:
             allow_origins=settings.cors_allowed_origins,
             allow_credentials=settings.cors_allow_credentials,
             allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-            allow_headers=["Accept", "Authorization", "Content-Type", "X-Request-ID"],
+            allow_headers=[
+                "Accept",
+                "Authorization",
+                "Content-Type",
+                "X-API-Key",
+                "X-Request-ID",
+            ],
             expose_headers=[
                 "X-Request-ID",
                 "X-RateLimit-Limit",
@@ -75,7 +88,10 @@ def create_application() -> FastAPI:
         enabled=settings.security_headers_enabled,
     )
     # Request IDs wrap handled security/size responses so rejections remain traceable.
-    application.add_middleware(RequestIDMiddleware)
+    application.add_middleware(
+        RequestIDMiddleware,
+        observability_enabled=settings.observability_enabled,
+    )
 
     application.include_router(
         api_router,

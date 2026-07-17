@@ -278,6 +278,9 @@ localStorage, sessionStorage, or cookies.
 
 HTTP responses include `X-Request-ID`. A valid incoming request ID is preserved;
 missing, blank, unsafe, or overly long IDs are replaced with a generated UUID4.
+The API emits JSON request lifecycle events named `api_request_started`,
+`api_request_completed`, and `api_error`. Request lifecycle logs contain only
+`request_id`, `method`, `path`, `status_code`, `duration_ms`, and `timestamp`.
 The grounded-answer pipeline records internal retrieval, context assembly,
 prompt construction, generation, and total timings. Logs intentionally exclude
 questions, document/context text, answers, prompts, identifiers, secrets, and raw
@@ -327,7 +330,7 @@ intentionally excluded while local HTTP development is supported.
 
 JSON requests are limited to 256 KiB by default and document uploads to 10 MiB.
 Malformed `Content-Length` returns `400`; oversized JSON or document uploads
-return `413` with sanitized details. Authentication remains future work.
+return `413` with sanitized details.
 
 API-key authentication is disabled by default. When enabled, document ingestion
 and grounded-answer generation require the configured header, `X-API-Key` by
@@ -338,6 +341,40 @@ not a plaintext key. Generate a digest locally with
 Missing or invalid credentials return `401` with `WWW-Authenticate: ApiKey`.
 This is intended for service-to-service or local deployment; user accounts and
 OAuth/JWT remain future work.
+
+## Security Architecture
+
+Authentication is optional API-key authentication for trusted service or local
+deployments. When enabled, the backend accepts the configured header
+(`X-API-Key` by default), hashes the provided value with SHA-256, and compares it
+with the configured digest using constant-time comparison. Plaintext API keys
+are never stored by the backend; frontend API keys are held only in page memory.
+Health endpoints stay public, and search protection can be disabled separately
+with `API_AUTH_PROTECT_SEARCH=false`.
+
+Request tracing is request-ID based. The backend preserves a safe incoming
+`X-Request-ID` or generates a UUID4, attaches it to every response, and uses it
+as the only correlation value in production logs. Unexpected errors return a
+sanitized `500` response with the request ID, without stack traces, internal
+paths, provider details, or raw exception messages.
+
+Logging is structured JSON and uses an allowlist of safe fields. Request logs
+exclude Authorization headers, cookies, API keys, IP addresses, filenames,
+uploaded content, user questions, answers, prompts, embeddings, vectors, Qdrant
+payloads, and raw exceptions. Operational route logs use aggregate counts,
+status values, and timing metadata only.
+
+Upload validation is extension and size based before indexing. Supported
+extensions are `.txt`, `.md`, `.pdf`, and `.docx`; empty, oversized, encrypted,
+corrupt, unsupported, or non-extractable documents receive sanitized errors.
+Only the basename of the supplied upload name is used for temporary storage, and
+upload bytes are written into an isolated temporary directory.
+
+Container hardening uses multi-stage images, no secret values in Compose, a
+non-root backend runtime user, an unprivileged nginx frontend image, explicit
+health checks, named Qdrant storage, trusted-host validation, disabled-by-default
+CORS, conservative response security headers, and Docker secrets or environment
+files for runtime secrets.
 
 ## Dependency Lifecycle
 
@@ -391,3 +428,77 @@ The container job validates `docker compose config` and builds the API image wit
 `docker build --tag hybrid-search-rag-ci:local .`. It does not push images, use
 repository secrets, or require an OpenAI API key. Runtime Compose smoke testing is
 kept as a local check to avoid CI depending on external model or service state.
+
+## Production-Style Local Stack
+
+Local Vite development remains unchanged:
+
+```bash
+# terminal 1
+cp .env.example .env
+docker compose up -d qdrant api
+
+# terminal 2
+cd frontend
+cp .env.example .env
+npm install
+npm run dev
+```
+
+`frontend/.env` uses `VITE_API_BASE_URL=http://127.0.0.1:8000` for Vite at
+`http://localhost:5173`. Keep secrets out of frontend environment variables;
+the browser only needs the public API base URL, and any API key entered in the UI
+is held in memory for the current page session only.
+
+The production-style local Compose stack serves the built React app with Nginx
+and proxies `/api/` to the Docker API service, so browser calls are same-origin
+from `http://localhost:3000` and do not require CORS:
+
+```bash
+docker compose up -d --build
+```
+
+Open `http://localhost:3000`. Direct navigation and refresh work for `/overview`,
+`/documents`, `/retrieval`, `/answers`, and `/system`. The frontend container is
+a static Nginx image; it does not run the Vite development server. Qdrant data is
+kept in the persistent `qdrant_storage` volume, and the Hugging Face cache remains
+in `huggingface_cache`.
+
+Useful local `.env` settings:
+
+```text
+GENERATION_PROVIDER=deterministic
+QDRANT_HYBRID_COLLECTION_NAME=internal_document_chunks_hybrid
+API_AUTH_ENABLED=false
+```
+
+Use a dedicated `QDRANT_HYBRID_COLLECTION_NAME` for acceptance or demo data when
+isolation is needed. Do not place provider keys or API secrets in frontend env
+files. If backend API-key auth is enabled, configure it only through backend
+`.env`; the frontend can send a session-only key entered by the user.
+
+The System Health page checks liveness automatically through the existing safe
+liveness query. Readiness is manual: click **Check readiness** to inspect safe
+component statuses without exposing stack traces, filesystem paths, provider
+credentials, vectors, or secrets.
+
+Run the concise full-stack smoke test after the stack is up:
+
+```bash
+python scripts/fullstack_smoke.py
+```
+
+Expected success ends with:
+
+```text
+Full-stack smoke passed: 5/5 checks
+```
+
+Shutdown:
+
+```bash
+docker compose down
+```
+
+Public deployment is the next stage; this stack is for local production-style
+verification only.

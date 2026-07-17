@@ -1,3 +1,5 @@
+import logging
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,6 +11,8 @@ from app.api.dependencies import (
     get_sparse_search_service,
     require_search_api_key,
 )
+from app.core.config import get_settings
+from app.observability.request_context import get_request_id
 from app.schemas.search_request import (
     DenseSearchRequest,
     DenseSearchResponse,
@@ -30,6 +34,33 @@ router = APIRouter(
     prefix="/search",
     tags=["Search"],
 )
+logger = logging.getLogger("app.retrieval")
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return round((time.perf_counter() - started_at) * 1000)
+
+
+def _log_retrieval_completed(
+    *,
+    search_type: str,
+    result_count: int,
+    started_at: float,
+) -> None:
+    settings = get_settings()
+    if not settings.observability_enabled:
+        return
+
+    logger.info(
+        "retrieval_completed",
+        extra={
+            "event": "retrieval_completed",
+            "request_id": get_request_id(),
+            "search_type": search_type,
+            "result_count": result_count,
+            "retrieval_ms": _elapsed_ms(started_at),
+        },
+    )
 
 
 @router.post(
@@ -47,11 +78,18 @@ async def dense_search(
     ],
 ) -> DenseSearchResponse:
     """Embed a query and return the nearest indexed chunks."""
+    started_at = time.perf_counter()
     try:
-        return await run_in_threadpool(
+        response = await run_in_threadpool(
             search_service.search,
             request,
         )
+        _log_retrieval_completed(
+            search_type="dense",
+            result_count=response.result_count,
+            started_at=started_at,
+        )
+        return response
 
     except ValueError as error:
         raise HTTPException(
@@ -96,11 +134,18 @@ async def sparse_search(
     ],
 ) -> SparseSearchResponse:
     """Encode a sparse query and return the nearest indexed chunks."""
+    started_at = time.perf_counter()
     try:
-        return await run_in_threadpool(
+        response = await run_in_threadpool(
             search_service.search,
             request,
         )
+        _log_retrieval_completed(
+            search_type="sparse",
+            result_count=response.result_count,
+            started_at=started_at,
+        )
+        return response
 
     except ValueError as error:
         raise HTTPException(
@@ -145,11 +190,18 @@ async def hybrid_search(
     ],
 ) -> HybridSearchResponse:
     """Retrieve dense and sparse candidates, then fuse their rankings."""
+    started_at = time.perf_counter()
     try:
-        return await run_in_threadpool(
+        response = await run_in_threadpool(
             search_service.search,
             request,
         )
+        _log_retrieval_completed(
+            search_type="hybrid",
+            result_count=response.result_count,
+            started_at=started_at,
+        )
+        return response
 
     except ValueError as error:
         raise HTTPException(

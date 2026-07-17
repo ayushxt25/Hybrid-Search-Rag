@@ -279,6 +279,7 @@ async def ingest_document(
     - Text-based PDF
     - Microsoft Word DOCX
     """
+    started_at = time.perf_counter()
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -344,8 +345,13 @@ async def ingest_document(
                     indexing_service.index_document,
                     temporary_path,
                 )
+                _log_document_event(
+                    "document_ingested",
+                    chunk_count=result.chunk_count,
+                    elapsed_ms=_elapsed_ms(started_at),
+                )
             else:
-                started_at = time.perf_counter()
+                replacement_started_at = time.perf_counter()
 
                 def replace(path: Path) -> IndexedDocumentResult:
                     replacement, deleted_chunks = (
@@ -358,7 +364,7 @@ async def ingest_document(
                         "document_replaced",
                         deleted_chunk_count=deleted_chunks,
                         new_chunk_count=replacement.chunk_count,
-                        elapsed_ms=_elapsed_ms(started_at),
+                        elapsed_ms=_elapsed_ms(replacement_started_at),
                     )
                     return replacement
 
