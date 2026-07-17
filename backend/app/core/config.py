@@ -162,6 +162,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_api_auth_configuration(self) -> "Settings":
+        if (
+            self.environment.strip().lower() == "production"
+            and not self.api_auth_enabled
+        ):
+            raise ValueError("api_auth_enabled must be true in production.")
+
         if self.api_auth_enabled and self.api_auth_key_sha256 is None:
             raise ValueError(
                 "api_auth_key_sha256 is required when api_auth_enabled is true."

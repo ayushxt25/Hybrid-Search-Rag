@@ -3,6 +3,22 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiClient, ApiError } from "./client";
 
 describe("ApiClient", () => {
+  it("uses a relative API base URL by default", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ status: "alive" }),
+    });
+    const client = new ApiClient({ fetcher });
+
+    await client.json("/api/v1/health/live");
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/health/live",
+      expect.objectContaining({ headers: expect.any(Headers) }),
+    );
+  });
+
   it("parses request IDs from response headers", async () => {
     const fetcher = vi.fn().mockResolvedValue({
       ok: true,

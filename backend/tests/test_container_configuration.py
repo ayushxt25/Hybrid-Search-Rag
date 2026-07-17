@@ -36,6 +36,7 @@ def test_docker_compose_frontend_service_preserves_api_qdrant() -> None:
     assert "dockerfile: Dockerfile" in compose
     assert "condition: service_healthy" in compose
     assert "QDRANT_URL: http://qdrant:6333" in compose
+    assert "TRUSTED_HOSTS: '${TRUSTED_HOSTS:-" in compose
     assert "qdrant_storage:" in compose
     assert "OPENAI_API_KEY" not in compose
     assert "API_AUTH_KEY" not in compose
@@ -44,7 +45,8 @@ def test_docker_compose_frontend_service_preserves_api_qdrant() -> None:
 def test_frontend_env_and_gitignore_do_not_commit_secrets() -> None:
     env_example = read("frontend/.env.example")
     gitignore = read(".gitignore")
-    assert "VITE_API_BASE_URL=http://127.0.0.1:8000" in env_example
+    assert "VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1" in env_example
+    assert "Do not put API keys" in env_example
     assert "frontend/.env" in gitignore
     assert "frontend/dist" in gitignore
 

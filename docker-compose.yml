@@ -13,9 +13,10 @@ services:
     environment:
       QDRANT_URL: http://qdrant:6333
       QDRANT_HYBRID_COLLECTION_NAME: ${QDRANT_HYBRID_COLLECTION_NAME:-internal_document_chunks_hybrid}
-      TRUSTED_HOSTS: '["localhost","127.0.0.1","api","frontend","testserver"]'
+      TRUSTED_HOSTS: '${TRUSTED_HOSTS:-["localhost","127.0.0.1","api","frontend","testserver"]}'
       HF_HOME: /home/appuser/.cache/huggingface
     ports:
+      # Local API port. Put a reverse proxy or platform load balancer in front for public deployment.
       - "8000:8000"
     tmpfs:
       - /tmp
@@ -50,6 +51,7 @@ services:
       api:
         condition: service_healthy
     ports:
+      # Local frontend port for the unprivileged nginx container.
       - "3000:8080"
     cap_drop:
       - ALL
@@ -67,9 +69,11 @@ services:
     container_name: hybrid-search-rag-qdrant
     restart: unless-stopped
     ports:
+      # Local-only Qdrant ports. Do not expose these publicly in production.
       - "127.0.0.1:6333:6333"
       - "127.0.0.1:6334:6334"
     volumes:
+      # Persistent Qdrant vector data.
       - qdrant_storage:/qdrant/storage
     healthcheck:
       test:
@@ -85,5 +89,7 @@ services:
       start_period: 10s
 
 volumes:
+  # Cached embedding model files for local/container reuse.
   huggingface_cache:
+  # Persistent Qdrant storage volume.
   qdrant_storage:

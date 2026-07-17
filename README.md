@@ -232,8 +232,13 @@ npm run dev
 Configure the backend URL with:
 
 ```text
-VITE_API_BASE_URL=http://127.0.0.1:8000
+VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1
 ```
+
+Leave `VITE_API_BASE_URL` unset for production-style reverse-proxy builds; the
+frontend then uses the relative `/api/v1` path and does not embed localhost or
+private network addresses. `VITE_*` values are public build-time values, so do
+not place API keys, passwords, provider secrets, or other credentials in them.
 
 Production build:
 
@@ -263,7 +268,8 @@ not inferred. Grounded-answer summaries use citation/source counts and
 client-observed duration, not confidence percentages. Deployment is the next
 major frontend stage.
 
-The document UI depends on the backend API at `VITE_API_BASE_URL`. Uploads use
+The document UI depends on the backend API at `VITE_API_BASE_URL` in local Vite
+development, or `/api/v1` when built behind the reverse proxy. Uploads use
 multipart field `file`; replacements use the same upload endpoint with
 `replace_document_id`. The displayed upload limit is the backend default
 `MAX_DOCUMENT_UPLOAD_BYTES=10485760` (10 MB). Replacement follows backend
@@ -417,6 +423,74 @@ code, and uses one Uvicorn worker so in-memory rate limits remain process-local.
 Docker health uses liveness; readiness may remain `503` until the Qdrant hybrid
 collection exists and is compatible.
 
+## Deployment Preparation
+
+This repository is prepared for deployment configuration, but this section does
+not imply any service has been deployed. Use `.env.example` as a template and
+provide real values through private environment variables, Docker secrets, or a
+deployment secret manager.
+
+Required backend environment variables for public deployment:
+
+- `ENVIRONMENT=production`
+- `API_AUTH_ENABLED=true`
+- `API_AUTH_KEY_SHA256=<sha256 digest of the API key>`
+- `TRUSTED_HOSTS=["api.example.com","studio.example.com"]`
+- `CORS_ENABLED=true` when the frontend and API are on different origins
+- `CORS_ALLOWED_ORIGINS=["https://studio.example.com"]`
+- `QDRANT_URL=<qdrant cloud or private service URL>`
+- `QDRANT_HYBRID_COLLECTION_NAME=<production collection name>`
+- `GENERATION_PROVIDER=openai`
+- `OPENAI_API_KEY=<secret-managed provider key>`
+
+Local development can use `API_AUTH_ENABLED=false`, local Qdrant at
+`http://localhost:6333`, and Vite with
+`VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1`. Production should enable API
+authentication, set explicit trusted hosts and origins, use a production Qdrant
+instance, and keep provider credentials out of source control.
+
+Frontend build configuration is intentionally small. If the frontend is served
+behind the included reverse proxy, leave `FRONTEND_API_BASE_URL` and
+`VITE_API_BASE_URL` empty so the built app calls relative `/api/v1`. If the
+frontend and API are hosted on separate public origins, set the build-time API
+base URL to the public HTTPS API prefix, such as
+`https://api.example.com/api/v1`. Do not put secrets in `VITE_*` variables
+because they are embedded into the browser bundle.
+
+Backend configuration remains environment-driven. CORS, trusted hosts, API-key
+authentication, upload limits, request observability, Qdrant connection details,
+and provider settings are parsed from environment variables. Security headers,
+API-key digest verification, upload validation, and safe error handling should
+remain enabled for production.
+
+Qdrant is required before readiness can pass. Use a production Qdrant service or
+a managed private deployment, configure `QDRANT_URL`, and use a dedicated
+production hybrid collection. Back up production vector data before destructive
+document replacement or deletion workflows.
+
+API authentication is required for public deployment. Store only the SHA-256
+digest in `API_AUTH_KEY_SHA256`; distribute the plaintext API key through a
+private operational channel or secret manager, never through `.env.example`,
+frontend variables, logs, or documentation.
+
+Before deployment:
+
+- [ ] configure environment variables
+- [ ] configure frontend API URL
+- [ ] configure backend allowed origins
+- [ ] configure Qdrant connection
+- [ ] verify health endpoints
+- [ ] run tests
+- [ ] build containers
+
+After deployment:
+
+- [ ] verify frontend routes
+- [ ] verify API health
+- [ ] verify upload
+- [ ] verify retrieval
+- [ ] verify grounded answers
+
 ## Continuous Integration
 
 GitHub Actions runs on pushes to `main`, pull requests targeting `main`, and
@@ -445,10 +519,11 @@ npm install
 npm run dev
 ```
 
-`frontend/.env` uses `VITE_API_BASE_URL=http://127.0.0.1:8000` for Vite at
-`http://localhost:5173`. Keep secrets out of frontend environment variables;
-the browser only needs the public API base URL, and any API key entered in the UI
-is held in memory for the current page session only.
+`frontend/.env` uses `VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1` for Vite
+at `http://localhost:5173`. Leave it unset for reverse-proxy builds so the app
+uses `/api/v1`. Keep secrets out of frontend environment variables; the browser
+only needs the public API base URL, and any API key entered in the UI is held in
+memory for the current page session only.
 
 The production-style local Compose stack serves the built React app with Nginx
 and proxies `/api/` to the Docker API service, so browser calls are same-origin

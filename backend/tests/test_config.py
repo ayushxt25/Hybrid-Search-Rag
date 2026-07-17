@@ -3,6 +3,8 @@ from pydantic import ValidationError
 
 from app.core.config import Settings
 
+VALID_DIGEST = "0" * 64
+
 
 def test_hybrid_weight_environment_overrides(monkeypatch) -> None:
     monkeypatch.setenv("HYBRID_DENSE_WEIGHT", "2.0")
@@ -26,6 +28,26 @@ def test_observability_environment_overrides(monkeypatch) -> None:
     assert settings.log_level == "WARNING"
     assert settings.observability_enabled is False
     assert settings.readiness_enabled is False
+
+
+def test_production_requires_api_auth(monkeypatch) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("API_AUTH_ENABLED", "false")
+
+    with pytest.raises(ValidationError, match="api_auth_enabled"):
+        Settings(_env_file=None)
+
+
+def test_production_accepts_api_auth_with_digest(monkeypatch) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("API_AUTH_ENABLED", "true")
+    monkeypatch.setenv("API_AUTH_KEY_SHA256", VALID_DIGEST)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.environment == "production"
+    assert settings.api_auth_enabled is True
+    assert settings.api_auth_key_sha256 == VALID_DIGEST
 
 
 def test_qdrant_health_timeout_environment_override(monkeypatch) -> None:

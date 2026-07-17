@@ -37,7 +37,7 @@ export type ApiResult<T> = {
   requestId?: string;
 };
 
-const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 let sessionApiKey: string | undefined;
 
 export function setSessionApiKey(value: string | undefined) {
