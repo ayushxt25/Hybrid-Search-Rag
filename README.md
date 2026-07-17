@@ -242,10 +242,20 @@ npm run build
 ```
 
 Implemented routes are `/overview`, `/documents`, `/retrieval`, `/answers`,
-`/system`, and a not-found route. This stage provides the application shell,
-design system, API client foundation, health integration, and intentional
-placeholder pages; full document, retrieval, and grounded-answer UI workflows
-are not implemented yet.
+`/system`, and a not-found route. The Documents route provides the first full
+workflow: list indexed documents, upload TXT, Markdown, PDF, and DOCX files,
+inspect safe document metadata, replace an existing document, and delete indexed
+chunks. Retrieval and grounded-answer pages remain upcoming UI workflows.
+
+The document UI depends on the backend API at `VITE_API_BASE_URL`. Uploads use
+multipart field `file`; replacements use the same upload endpoint with
+`replace_document_id`. The displayed upload limit is the backend default
+`MAX_DOCUMENT_UPLOAD_BYTES=10485760` (10 MB). Replacement follows backend
+semantics: the new file is parsed first and old indexed chunks are removed before
+upsert, but the operation is not a database transaction. Deletion removes indexed
+chunks for the selected document. If API-key auth is enabled, the page can keep a
+key in memory for the current browser page session only; it is never stored in
+localStorage, sessionStorage, or cookies.
 
 
 ## Request Observability

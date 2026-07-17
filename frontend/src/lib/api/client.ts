@@ -28,6 +28,20 @@ export type ApiResult<T> = {
 };
 
 const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+let sessionApiKey: string | undefined;
+
+export function setSessionApiKey(value: string | undefined) {
+  const normalized = value?.trim();
+  sessionApiKey = normalized || undefined;
+}
+
+export function clearSessionApiKey() {
+  sessionApiKey = undefined;
+}
+
+export function hasSessionApiKey() {
+  return Boolean(sessionApiKey);
+}
 
 async function readBody(response: Response): Promise<unknown> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -108,4 +122,4 @@ export class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient();
+export const apiClient = new ApiClient({ getApiKey: () => sessionApiKey });
