@@ -242,10 +242,17 @@ npm run build
 ```
 
 Implemented routes are `/overview`, `/documents`, `/retrieval`, `/answers`,
-`/system`, and a not-found route. The Documents route provides the first full
-workflow: list indexed documents, upload TXT, Markdown, PDF, and DOCX files,
-inspect safe document metadata, replace an existing document, and delete indexed
-chunks. Retrieval and grounded-answer pages remain upcoming UI workflows.
+`/system`, and a not-found route. The Documents route supports listing indexed
+documents, uploading TXT, Markdown, PDF, and DOCX files, inspecting safe
+metadata, replacing an existing document, and deleting indexed chunks. The
+Retrieval Playground runs dense, sparse, and weighted-RRF hybrid searches,
+supports document and content-type metadata filters, and can show optional score
+diagnostics. Diagnostics expose branch ranks, raw branch scores, weighted-RRF
+contributions, fused rank, and fused score; fused score is not a probability or
+confidence value, and dense/sparse raw scores are not directly comparable. The
+UI labels request timing as client-observed duration and does not display
+vectors, sparse indices, Qdrant point IDs, raw payloads, or secrets. The
+grounded-answer page remains an upcoming UI workflow.
 
 The document UI depends on the backend API at `VITE_API_BASE_URL`. Uploads use
 multipart field `file`; replacements use the same upload endpoint with
