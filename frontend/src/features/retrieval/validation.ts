@@ -18,6 +18,7 @@ export function validateSearch(
   payload: SearchPayload,
 ): string | null {
   if (!payload.query.trim()) return "Enter a retrieval query.";
+  if (!Number.isFinite(payload.limit)) return "Result limit must be a number.";
   if (
     payload.limit < retrievalLimits.minLimit ||
     payload.limit > retrievalLimits.maxLimit
@@ -32,6 +33,7 @@ export function validateSearch(
   }
   if (mode === "hybrid") {
     const candidateLimit = payload.candidate_limit ?? 20;
+    if (!Number.isFinite(candidateLimit)) return "Candidate limit must be a number.";
     if (
       candidateLimit < retrievalLimits.minCandidateLimit ||
       candidateLimit > retrievalLimits.maxCandidateLimit

@@ -26,7 +26,11 @@ function errorMessage(error: unknown) {
   if (error.status === 401 || error.status === 403) {
     return "API credentials were not accepted.";
   }
-  if (error.status === 422) return "Check the query, limits, and filters.";
+  if (error.status === 422) {
+    return error.detail && error.detail !== "[object Object]"
+      ? error.detail
+      : "Check the query, limits, and filters.";
+  }
   if (error.status === 429) return "Too many requests. Wait briefly before retrying.";
   if (error.status === 503) return "Backend retrieval service is unavailable.";
   if (error.status >= 500) return "Backend search failed.";

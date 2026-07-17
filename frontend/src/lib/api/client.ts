@@ -1,16 +1,23 @@
 export class ApiError extends Error {
   status: number;
   requestId?: string;
+  retryAfter?: string;
   detail: string;
 
   constructor(
     message: string,
-    options: { status: number; requestId?: string; detail: string },
+    options: {
+      status: number;
+      requestId?: string;
+      retryAfter?: string;
+      detail: string;
+    },
   ) {
     super(message);
     this.name = "ApiError";
     this.status = options.status;
     this.requestId = options.requestId;
+    this.retryAfter = options.retryAfter;
     this.detail = options.detail;
   }
 }
@@ -99,10 +106,16 @@ export class ApiClient {
         signal: controller.signal,
       });
       const requestId = response.headers.get("X-Request-ID") ?? undefined;
+      const retryAfter = response.headers.get("Retry-After") ?? undefined;
       const body = await readBody(response);
       if (!response.ok) {
         const detail = detailFrom(body);
-        throw new ApiError(detail, { status: response.status, requestId, detail });
+        throw new ApiError(detail, {
+          status: response.status,
+          requestId,
+          retryAfter,
+          detail,
+        });
       }
       return { data: body as T, requestId };
     } catch (error) {

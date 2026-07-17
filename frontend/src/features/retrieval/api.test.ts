@@ -31,34 +31,68 @@ describe("retrieval API", () => {
     vi.restoreAllMocks();
   });
 
-  it("uses the dense endpoint and omits hybrid-only candidate limit", async () => {
+  it("sends exact dense diagnostics true payload", async () => {
     const fetcher = vi.fn().mockResolvedValue(await ok());
     vi.stubGlobal("fetch", fetcher);
     const result = await searchDense(basePayload);
     expect(fetcher.mock.calls[0][0]).toBe("http://127.0.0.1:8000/api/v1/search/dense");
     const body = JSON.parse(fetcher.mock.calls[0][1].body as string);
-    expect(body.candidate_limit).toBeUndefined();
-    expect(body.document_ids).toEqual(["a".repeat(64)]);
-    expect(body.content_types).toEqual(["text/plain"]);
-    expect(body.include_score_diagnostics).toBe(true);
+    expect(body).toEqual({
+      query: "marker",
+      limit: 5,
+      document_ids: ["a".repeat(64)],
+      content_types: ["text/plain"],
+      include_score_diagnostics: true,
+    });
+    expect(typeof body.include_score_diagnostics).toBe("boolean");
     expect(result.requestId).toBe("req-1");
   });
 
-  it("uses the sparse endpoint and payload", async () => {
+  it("sends exact dense diagnostics false payload and omits empty filters", async () => {
+    const fetcher = vi.fn().mockResolvedValue(await ok());
+    vi.stubGlobal("fetch", fetcher);
+    await searchDense({
+      query: "  marker  ",
+      limit: 5,
+      document_ids: [],
+      content_types: [],
+      include_score_diagnostics: false,
+    });
+    expect(JSON.parse(fetcher.mock.calls[0][1].body as string)).toEqual({
+      query: "marker",
+      limit: 5,
+      include_score_diagnostics: false,
+    });
+  });
+
+  it("sends exact sparse diagnostics true payload", async () => {
     const fetcher = vi.fn().mockResolvedValue(await ok());
     vi.stubGlobal("fetch", fetcher);
     await searchSparse(basePayload);
     expect(fetcher.mock.calls[0][0]).toBe("http://127.0.0.1:8000/api/v1/search/sparse");
-    expect(JSON.parse(fetcher.mock.calls[0][1].body as string).query).toBe("marker");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body as string)).toEqual({
+      query: "marker",
+      limit: 5,
+      document_ids: ["a".repeat(64)],
+      content_types: ["text/plain"],
+      include_score_diagnostics: true,
+    });
   });
 
-  it("uses the hybrid endpoint and includes candidate limit", async () => {
+  it("sends exact hybrid diagnostics true payload with candidate limit", async () => {
     const fetcher = vi.fn().mockResolvedValue(await ok());
     vi.stubGlobal("fetch", fetcher);
     await searchHybrid(basePayload);
     const body = JSON.parse(fetcher.mock.calls[0][1].body as string);
     expect(fetcher.mock.calls[0][0]).toBe("http://127.0.0.1:8000/api/v1/search/hybrid");
-    expect(body.candidate_limit).toBe(25);
+    expect(body).toEqual({
+      query: "marker",
+      limit: 5,
+      candidate_limit: 25,
+      document_ids: ["a".repeat(64)],
+      content_types: ["text/plain"],
+      include_score_diagnostics: true,
+    });
   });
 
   it("uses the in-memory API key header", async () => {
@@ -82,5 +116,17 @@ describe("retrieval API", () => {
       } as Response),
     );
     await expect(searchDense(basePayload)).rejects.toThrow("Request failed.");
+  });
+
+  it("does not retry 422 validation responses", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ detail: "validation failed" }),
+    } as Response);
+    vi.stubGlobal("fetch", fetcher);
+    await expect(searchDense(basePayload)).rejects.toThrow("validation failed");
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

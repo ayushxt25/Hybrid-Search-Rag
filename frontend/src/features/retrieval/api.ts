@@ -7,13 +7,22 @@ const searchPaths: Record<RetrievalMode, string> = {
   hybrid: "/api/v1/search/hybrid",
 };
 
-function payloadFor(mode: RetrievalMode, payload: SearchPayload) {
-  const body: SearchPayload = {
-    query: payload.query,
+type SearchRequestBody = {
+  query: string;
+  limit: number;
+  candidate_limit?: number;
+  document_ids?: string[];
+  content_types?: string[];
+  include_score_diagnostics: boolean;
+};
+
+function payloadFor(mode: RetrievalMode, payload: SearchPayload): SearchRequestBody {
+  const body: SearchRequestBody = {
+    query: payload.query.trim(),
     limit: payload.limit,
-    include_score_diagnostics: payload.include_score_diagnostics,
+    include_score_diagnostics: payload.include_score_diagnostics === true,
   };
-  if (mode === "hybrid") {
+  if (mode === "hybrid" && Number.isFinite(payload.candidate_limit)) {
     body.candidate_limit = payload.candidate_limit;
   }
   if (payload.document_ids?.length) {
