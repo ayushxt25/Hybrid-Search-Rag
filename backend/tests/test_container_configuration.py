@@ -57,3 +57,50 @@ def test_smoke_script_uses_public_frontend_url() -> None:
     assert "/api/v1/health/live" in smoke
     assert "/api/v1/documents" in smoke
     assert "Full-stack smoke passed" in smoke
+
+
+def test_huggingface_space_metadata_is_docker_port_7860() -> None:
+    readme = read("deployment/huggingface/README.md")
+
+    assert readme.startswith("---\n")
+    assert "title: Hybrid Search Studio API" in readme
+    assert "sdk: docker" in readme
+    assert "app_port: 7860" in readme
+    assert "pinned: false" in readme
+    assert "QDRANT_API_KEY" not in readme
+    assert "API_AUTH_KEY_SHA256" not in readme
+
+
+def test_huggingface_dockerfile_is_api_only_non_root_port_7860() -> None:
+    dockerfile = read("deployment/huggingface/Dockerfile")
+    pyproject = read("pyproject.toml")
+
+    assert "FROM python:3.11-slim AS builder" in dockerfile
+    assert "FROM python:3.11-slim AS runtime" in dockerfile
+    assert "COPY backend/app ./backend/app" in dockerfile
+    assert "sentence-transformers==5.6.0" in pyproject
+    assert "https://download.pytorch.org/whl/cpu" in dockerfile
+    assert '"torch==2.9.1+cpu"' in dockerfile
+    assert "SENTENCE_TRANSFORMERS_HOME" in dockerfile
+    assert "USER 10001:10001" in dockerfile
+    assert "EXPOSE 7860" in dockerfile
+    assert '"0.0.0.0"' in dockerfile
+    assert '"7860"' in dockerfile
+    assert '"--workers", "1"' in dockerfile
+    assert '"app.main:app"' in dockerfile
+    assert "npm" not in dockerfile
+    assert "qdrant/qdrant" not in dockerfile
+    assert "QDRANT_API_KEY" not in dockerfile
+    assert "API_AUTH_KEY_SHA256" not in dockerfile
+    assert "OPENAI_API_KEY" not in dockerfile
+
+
+def test_root_dockerfile_and_compose_ports_remain_unchanged() -> None:
+    root_dockerfile = read("Dockerfile")
+    compose = read("docker-compose.yml")
+
+    assert "EXPOSE 8000" in root_dockerfile
+    assert '"8000"' in root_dockerfile
+    assert '"8000:8000"' in compose
+    assert '"3000:8080"' in compose
+    assert "127.0.0.1:6333:6333" in compose

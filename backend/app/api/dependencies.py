@@ -7,9 +7,6 @@ from fastapi import HTTPException, Request, status
 from app.context.assembler import ContextAssembler
 from app.core.config import get_settings
 from app.documents.service import DocumentManagementService
-from app.embeddings.sentence_transformer import (
-    SentenceTransformerEmbeddingProvider,
-)
 from app.generation.base import GenerationProvider
 from app.generation.deterministic import DeterministicAcceptanceGenerationProvider
 from app.generation.openai import OpenAIGenerationProvider
@@ -29,6 +26,7 @@ from app.vectorstore.qdrant import QdrantVectorStore
 
 logger = logging.getLogger("app.dependencies")
 auth_logger = logging.getLogger("app.security")
+SentenceTransformerEmbeddingProvider = None
 
 
 class Closeable(Protocol):
@@ -48,9 +46,24 @@ def _register_closeable(resource: Closeable) -> Closeable:
     return resource
 
 
+def _qdrant_api_key_kwargs(settings) -> dict[str, str]:
+    value = getattr(settings, "qdrant_api_key", "")
+    if isinstance(value, str) and value.strip():
+        return {"api_key": value}
+    return {}
+
+
 @lru_cache
-def get_embedding_provider() -> SentenceTransformerEmbeddingProvider:
+def get_embedding_provider():
     """Return the shared dense-embedding provider."""
+    global SentenceTransformerEmbeddingProvider
+    if SentenceTransformerEmbeddingProvider is None:
+        from app.embeddings.sentence_transformer import (
+            SentenceTransformerEmbeddingProvider as provider_class,
+        )
+
+        SentenceTransformerEmbeddingProvider = provider_class
+
     return SentenceTransformerEmbeddingProvider()
 
 
@@ -98,6 +111,7 @@ def get_document_indexing_service() -> DocumentIndexingService:
     vector_store = _register_closeable(
         QdrantVectorStore(
             url=settings.qdrant_url,
+            **_qdrant_api_key_kwargs(settings),
             collection_name=settings.qdrant_hybrid_collection_name,
             vector_dimensions=settings.dense_embedding_dimensions,
             sparse_enabled=True,
@@ -119,6 +133,7 @@ def get_document_management_service() -> DocumentManagementService:
     vector_store = _register_closeable(
         QdrantVectorStore(
             url=settings.qdrant_url,
+            **_qdrant_api_key_kwargs(settings),
             collection_name=settings.qdrant_hybrid_collection_name,
             vector_dimensions=settings.dense_embedding_dimensions,
             sparse_enabled=True,
@@ -142,6 +157,7 @@ def get_dense_search_service() -> DenseSearchService:
     vector_store = _register_closeable(
         QdrantVectorStore(
             url=settings.qdrant_url,
+            **_qdrant_api_key_kwargs(settings),
             collection_name=settings.qdrant_hybrid_collection_name,
             vector_dimensions=settings.dense_embedding_dimensions,
             sparse_enabled=True,
@@ -163,6 +179,7 @@ def get_sparse_search_service() -> SparseSearchService:
     vector_store = _register_closeable(
         QdrantVectorStore(
             url=settings.qdrant_url,
+            **_qdrant_api_key_kwargs(settings),
             collection_name=settings.qdrant_hybrid_collection_name,
             vector_dimensions=settings.dense_embedding_dimensions,
             sparse_enabled=True,
@@ -185,6 +202,7 @@ def get_hybrid_search_service() -> HybridSearchService:
     vector_store = _register_closeable(
         QdrantVectorStore(
             url=settings.qdrant_url,
+            **_qdrant_api_key_kwargs(settings),
             collection_name=settings.qdrant_hybrid_collection_name,
             vector_dimensions=settings.dense_embedding_dimensions,
             sparse_enabled=True,
@@ -310,6 +328,7 @@ def get_readiness_qdrant_vector_store() -> QdrantVectorStore:
     return _register_closeable(
         QdrantVectorStore(
             url=settings.qdrant_url,
+            **_qdrant_api_key_kwargs(settings),
             collection_name=settings.qdrant_hybrid_collection_name,
             vector_dimensions=settings.dense_embedding_dimensions,
             sparse_enabled=True,

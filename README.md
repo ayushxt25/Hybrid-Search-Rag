@@ -430,6 +430,10 @@ not imply any service has been deployed. Use `.env.example` as a template and
 provide real values through private environment variables, Docker secrets, or a
 deployment secret manager.
 
+For Hugging Face Docker Space backend preparation, see
+`deployment/huggingface/DEPLOYMENT.md`. The React frontend remains a separate
+future Vercel deployment target.
+
 Required backend environment variables for public deployment:
 
 - `ENVIRONMENT=production`

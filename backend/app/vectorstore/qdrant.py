@@ -62,6 +62,7 @@ class QdrantVectorStore:
         collection_name: str,
         vector_dimensions: int,
         url: str | None = None,
+        api_key: str | None = None,
         client: QdrantClient | None = None,
         sparse_enabled: bool = False,
         timeout_seconds: float | None = None,
@@ -85,10 +86,19 @@ class QdrantVectorStore:
         self.vector_dimensions = vector_dimensions
         self._owns_client = client is None
         self._closed = False
+        normalized_api_key = api_key.strip() if api_key else None
         if client is None and timeout_seconds is not None:
-            self.client = QdrantClient(url=url, timeout=timeout_seconds)
+            self.client = QdrantClient(
+                url=url,
+                api_key=normalized_api_key,
+                timeout=timeout_seconds,
+            )
         else:
-            self.client = client if client is not None else QdrantClient(url=url)
+            self.client = (
+                client
+                if client is not None
+                else QdrantClient(url=url, api_key=normalized_api_key)
+            )
         self.sparse_enabled = sparse_enabled
 
     def close(self) -> None:

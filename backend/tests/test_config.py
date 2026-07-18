@@ -52,10 +52,12 @@ def test_production_accepts_api_auth_with_digest(monkeypatch) -> None:
 
 def test_qdrant_health_timeout_environment_override(monkeypatch) -> None:
     monkeypatch.setenv("QDRANT_HEALTH_TIMEOUT_SECONDS", "1.5")
+    monkeypatch.setenv("QDRANT_API_KEY", "qdrant-key")
 
     settings = Settings(_env_file=None)
 
     assert settings.qdrant_health_timeout_seconds == 1.5
+    assert settings.qdrant_api_key == "qdrant-key"
 
 
 def test_context_environment_overrides(monkeypatch) -> None:

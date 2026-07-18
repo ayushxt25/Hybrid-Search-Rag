@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     api_auth_protect_search: bool = True
 
     qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str = ""
     qdrant_collection_name: str = "internal_document_chunks"
     qdrant_hybrid_collection_name: str = "internal_document_chunks_hybrid"
     qdrant_health_timeout_seconds: float = Field(default=3.0, gt=0)
