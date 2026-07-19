@@ -1,12 +1,18 @@
+import tomllib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 README = ROOT / "README.md"
+PYPROJECT = ROOT / "pyproject.toml"
 
 
 def read_workflow() -> str:
     return WORKFLOW.read_text(encoding="utf-8")
+
+
+def load_pyproject() -> dict:
+    return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
 
 
 def test_ci_workflow_exists() -> None:
@@ -38,7 +44,7 @@ def test_quality_job_runs_python_ruff_and_full_pytest() -> None:
     assert 'python-version: "3.11"' in text
     assert "cache: pip" in text
     assert "cache-dependency-path: pyproject.toml" in text
-    assert 'python -m pip install -e ".[dev]"' in text
+    assert 'python -m pip install -e ".[test]"' in text
     assert "python -m ruff format --check backend" in text
     assert "python -m ruff check backend" in text
     assert "python -m pytest" in text
@@ -93,7 +99,17 @@ def test_no_runtime_smoke_or_readiness_dependency() -> None:
     assert "docker compose up" not in text
     assert "docker compose down" not in text
     assert "huggingface" not in text
-    assert "sentence-transformers" not in text
+
+
+def test_ci_test_extra_includes_local_embedding_dependencies() -> None:
+    pyproject = load_pyproject()
+    optional_dependencies = pyproject["project"]["optional-dependencies"]
+
+    assert "local-embeddings" in optional_dependencies
+    assert "test" in optional_dependencies
+    assert "sentence-transformers==5.6.0" in optional_dependencies["local-embeddings"]
+    assert "sentence-transformers==5.6.0" in optional_dependencies["test"]
+    assert "sentence-transformers" not in pyproject["project"]["dependencies"]
 
 
 def test_readme_documents_ci() -> None:

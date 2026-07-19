@@ -1,5 +1,6 @@
 import ast
 import json
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,10 @@ def read(path: str) -> str:
 
 def load_vercel() -> dict:
     return json.loads(read("vercel.json"))
+
+
+def load_pyproject() -> dict:
+    return tomllib.loads(read("pyproject.toml"))
 
 
 def test_fastapi_vercel_entrypoint_reexports_existing_app() -> None:
@@ -208,13 +213,17 @@ def test_generated_vercel_output_bundles_frontend_dist_and_function_when_present
 def test_vercel_dependency_file_excludes_heavy_local_ml_packages() -> None:
     requirements = read("requirements-vercel.txt")
     api_requirements = read("api/requirements.txt")
-    pyproject = read("pyproject.toml")
+    pyproject = load_pyproject()
+    base_dependencies = "\n".join(pyproject["project"]["dependencies"])
+    optional_dependencies = pyproject["project"]["optional-dependencies"]
 
     assert "-r ../requirements-vercel.txt" in api_requirements
     assert "google-genai" in requirements
     for package in HEAVY_PACKAGES:
         assert package not in requirements
-        assert package not in pyproject
+        assert package not in base_dependencies
+    assert "sentence-transformers==5.6.0" in optional_dependencies["local-embeddings"]
+    assert "sentence-transformers==5.6.0" in optional_dependencies["test"]
 
 
 def test_vercelignore_excludes_pyproject_to_avoid_local_ml_dependencies() -> None:
@@ -257,8 +266,7 @@ def test_vercel_config_contains_no_secret_values_or_vite_secrets() -> None:
     assert "API_AUTH_KEY_SHA256=" not in combined
 
 
-def test_local_docker_huggingface_and_cloud_run_assets_remain_present() -> None:
+def test_local_docker_and_huggingface_assets_remain_present() -> None:
     assert "EXPOSE 8000" in read("Dockerfile")
     assert '"8000:8000"' in read("docker-compose.yml")
     assert "app_port: 7860" in read("deployment/huggingface/README.md")
-    assert "${PORT:-8000}" in read("deployment/google-cloud-run/Dockerfile")

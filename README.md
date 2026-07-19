@@ -498,7 +498,8 @@ After deployment:
 ## Continuous Integration
 
 GitHub Actions runs on pushes to `main`, pull requests targeting `main`, and
-manual dispatch. The CI workflow checks formatting with
+manual dispatch. The CI workflow installs full backend test dependencies with
+`python -m pip install -e ".[test]"`, checks formatting with
 `python -m ruff format --check backend`, lints with `python -m ruff check backend`,
 and runs the full test suite with `python -m pytest` on Python 3.11.
 
