@@ -45,6 +45,7 @@ def settings(**overrides):
     values = {
         "readiness_enabled": True,
         "observability_enabled": True,
+        "generation_provider": "openai",
         "openai_generation_model": "gpt-test",
         "openai_api_key": "test-key",
         "dense_embedding_dimensions": 384,
@@ -186,6 +187,22 @@ def test_readiness_returns_503_when_openai_key_is_missing() -> None:
     assert response.json()["components"]["generation"] == {
         "status": "unhealthy",
         "detail": "Generation provider is not configured.",
+    }
+
+
+def test_readiness_accepts_deterministic_generation_without_openai_key() -> None:
+    service = ReadinessService(
+        settings=settings(generation_provider="deterministic", openai_api_key=" "),
+        qdrant_checker=FakeQdrantChecker(),
+    )
+    app.dependency_overrides[get_readiness_service] = lambda: service
+
+    response = client.get("/api/v1/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["components"]["generation"] == {
+        "status": "healthy",
+        "detail": None,
     }
 
 

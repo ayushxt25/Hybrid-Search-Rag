@@ -58,6 +58,35 @@ def test_embedding_provider_is_cached(
     provider_class.assert_called_once_with()
 
 
+@patch("app.api.dependencies.GeminiEmbeddingProvider")
+@patch("app.api.dependencies.get_settings")
+def test_gemini_embedding_provider_is_created_and_cached(
+    settings_factory: Mock,
+    provider_class: Mock,
+) -> None:
+    settings_factory.return_value = Mock(
+        dense_embedding_provider="gemini",
+        gemini_api_key="secret",
+        gemini_embedding_model="gemini-embedding-001",
+        gemini_embedding_dimension=768,
+        gemini_embedding_timeout_seconds=12.5,
+    )
+    provider = Mock()
+    provider_class.return_value = provider
+
+    first = get_embedding_provider()
+    second = get_embedding_provider()
+
+    assert first is provider
+    assert second is provider
+    provider_class.assert_called_once_with(
+        api_key="secret",
+        model_name="gemini-embedding-001",
+        dimensions=768,
+        timeout_seconds=12.5,
+    )
+
+
 @patch("app.api.dependencies.HashedLexicalSparseProvider")
 def test_sparse_embedding_provider_is_cached(
     provider_class: Mock,

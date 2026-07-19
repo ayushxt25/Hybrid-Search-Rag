@@ -23,6 +23,7 @@ RUN groupadd --gid 10001 appuser \
 WORKDIR /app
 COPY --from=builder /dist/*.whl /tmp/
 RUN python -m pip install --no-cache-dir /tmp/*.whl \
+    && python -m pip install --no-cache-dir "sentence-transformers==5.6.0" \
     && rm -rf /tmp/*.whl
 
 USER 10001:10001

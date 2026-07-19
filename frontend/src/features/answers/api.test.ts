@@ -32,9 +32,7 @@ describe("answer API", () => {
       document_ids: ["a".repeat(64)],
       content_types: ["application/pdf"],
     });
-    expect(fetcher.mock.calls[0][0]).toBe(
-      "http://127.0.0.1:8000/api/v1/answers/grounded",
-    );
+    expect(fetcher.mock.calls[0][0]).toBe("/api/v1/answers/grounded");
     expect(JSON.parse(fetcher.mock.calls[0][1].body as string)).toEqual({
       question: "What is covered?",
       limit: 4,

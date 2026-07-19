@@ -78,7 +78,7 @@ describe("SystemPage", () => {
     renderPage();
     expect(await screen.findAllByText("Connected")).not.toHaveLength(0);
     expect(screen.getByText("/api/v1/health/live")).toBeInTheDocument();
-    expect(screen.getAllByText("http://127.0.0.1:8000").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("/api/v1").length).toBeGreaterThan(0);
     expect(screen.getByText(window.location.origin)).toBeInTheDocument();
     expect(screen.getByText("No")).toBeInTheDocument();
   });

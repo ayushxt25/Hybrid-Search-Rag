@@ -27,6 +27,7 @@ RUN python -m pip install --no-cache-dir \
         --index-url https://download.pytorch.org/whl/cpu \
         "torch==2.9.1+cpu" \
     && python -m pip install --no-cache-dir /tmp/*.whl \
+    && python -m pip install --no-cache-dir "sentence-transformers==5.6.0" \
     && rm -rf /tmp/*.whl
 
 USER 10001:10001

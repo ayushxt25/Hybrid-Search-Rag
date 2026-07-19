@@ -117,13 +117,26 @@ class GroundedAnswerService:
                     output=generation_output,
                     prompt_package=prompt_package,
                 )
-                citation_markers = validate_citation_markers(
-                    text=generation_output.text,
-                    available_source_numbers=[
-                        citation.source_number for citation in citations
-                    ],
-                    require_citations=self.require_answer_citations,
+                provider_reported_insufficient_context = (
+                    generation_output.finish_reason == "insufficient_context"
+                    or generation_output.text == INSUFFICIENT_CONTEXT_ANSWER
                 )
+
+                if provider_reported_insufficient_context:
+                    citation_markers = []
+                    citations = []
+                    context_source_count = 0
+                    insufficient_context = True
+                else:
+                    citation_markers = validate_citation_markers(
+                        text=generation_output.text,
+                        available_source_numbers=[
+                            citation.source_number for citation in citations
+                        ],
+                        require_citations=self.require_answer_citations,
+                    )
+                    context_source_count = assembled_context.source_count
+                    insufficient_context = prompt_package.insufficient_context
 
                 result = GroundedAnswerResult(
                     question=normalized_question,
@@ -132,9 +145,9 @@ class GroundedAnswerService:
                     citations=citations,
                     citation_markers=citation_markers,
                     retrieved_result_count=hybrid_response.result_count,
-                    context_source_count=assembled_context.source_count,
+                    context_source_count=context_source_count,
                     context_truncated=assembled_context.truncated,
-                    insufficient_context=prompt_package.insufficient_context,
+                    insufficient_context=insufficient_context,
                     input_characters=generation_output.input_characters,
                     output_characters=generation_output.output_characters,
                     finish_reason=generation_output.finish_reason,

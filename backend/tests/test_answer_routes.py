@@ -8,6 +8,8 @@ from app.api.dependencies import (
     get_grounded_answer_rate_limiter,
     get_grounded_answer_service,
 )
+from app.context.assembler import ContextAssembler
+from app.generation.deterministic import DeterministicAcceptanceGenerationProvider
 from app.generation.models import AnswerCitation, GroundedAnswerResult
 from app.generation.openai import (
     GenerationAuthenticationError,
@@ -15,8 +17,12 @@ from app.generation.openai import (
     GenerationProviderError,
     GenerationRateLimitError,
 )
+from app.generation.service import GroundedAnswerService
 from app.main import app
+from app.prompting.builder import GroundedPromptBuilder
 from app.rate_limit.models import RateLimitDecision
+from app.schemas.search import DenseSearchResult
+from app.schemas.search_request import HybridSearchResponse
 from app.vectorstore.exceptions import (
     VectorStoreConfigurationError,
     VectorStoreConnectionError,
@@ -132,6 +138,33 @@ def create_insufficient_context_result() -> GroundedAnswerResult:
     )
 
 
+def create_text_result(text: str) -> DenseSearchResult:
+    return DenseSearchResult(
+        point_id="point-a",
+        chunk_id=CHUNK_ID,
+        document_id=DOCUMENT_ID,
+        score=0.9,
+        file_name="aurora_policy.txt",
+        file_extension=".txt",
+        chunk_index=0,
+        section_index=0,
+        page_number=1,
+        heading="Policy",
+        text=text,
+        start_word=0,
+        end_word=len(text.split()),
+        word_count=len(text.split()),
+    )
+
+
+class StubHybridSearchService:
+    def __init__(self, response: HybridSearchResponse) -> None:
+        self.response = response
+
+    def search(self, request):
+        return self.response
+
+
 def post_grounded(payload: dict):
     return client.post("/api/v1/answers/grounded", json=payload)
 
@@ -218,6 +251,33 @@ def test_grounded_answer_returns_insufficient_context_response() -> None:
     assert body["context_source_count"] == 0
     assert body["insufficient_context"] is True
     assert body["finish_reason"] == "insufficient_context"
+
+
+def test_grounded_answer_endpoint_integrates_deterministic_extraction() -> None:
+    service = GroundedAnswerService(
+        hybrid_search_service=StubHybridSearchService(
+            HybridSearchResponse(
+                query="How often is the aurora ledger reviewed?",
+                result_count=1,
+                results=[
+                    create_text_result("The aurora ledger is reviewed every 23 days.")
+                ],
+            )
+        ),
+        context_assembler=ContextAssembler(),
+        prompt_builder=GroundedPromptBuilder(),
+        generation_provider=DeterministicAcceptanceGenerationProvider(),
+        observability_enabled=False,
+    )
+    app.dependency_overrides[get_grounded_answer_service] = lambda: service
+
+    response = post_grounded({"question": "How often is the aurora ledger reviewed?"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "23 days" in body["answer"]
+    assert body["citations"][0]["document_id"] == DOCUMENT_ID
+    assert body["citation_markers"] == [1]
 
 
 @pytest.mark.parametrize(

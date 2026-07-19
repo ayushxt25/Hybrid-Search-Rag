@@ -8,8 +8,18 @@ export const acceptedMimeTypes = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 export const acceptAttribute = [...acceptedExtensions, ...acceptedMimeTypes].join(",");
-export const maxUploadBytes = 10 * 1024 * 1024;
-export const maxUploadLabel = "10 MB";
+
+const defaultMaxUploadBytes = 10 * 1024 * 1024;
+const configuredMaxUploadBytes = Number(import.meta.env.VITE_MAX_DOCUMENT_UPLOAD_BYTES);
+
+export const maxUploadBytes =
+  Number.isFinite(configuredMaxUploadBytes) && configuredMaxUploadBytes > 0
+    ? configuredMaxUploadBytes
+    : defaultMaxUploadBytes;
+export const maxUploadLabel =
+  maxUploadBytes % (1024 * 1024) === 0
+    ? `${maxUploadBytes / (1024 * 1024)} MB`
+    : `${(maxUploadBytes / (1024 * 1024)).toFixed(1)} MB`;
 
 export function truncateId(value: string) {
   return `${value.slice(0, 10)}...${value.slice(-8)}`;

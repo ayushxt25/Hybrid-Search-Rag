@@ -53,6 +53,10 @@ def build_qdrant_filter(filters: RetrievalFilters) -> models.Filter | None:
     return models.Filter(must=must)
 
 
+def _has_retrieval_filters(filters: RetrievalFilters) -> bool:
+    return bool(filters.document_ids or filters.content_types)
+
+
 class QdrantVectorStore:
     """Store and retrieve document-chunk embeddings using Qdrant."""
 
@@ -476,17 +480,17 @@ class QdrantVectorStore:
         if limit <= 0:
             raise ValueError("limit must be greater than zero.")
 
-        query_filter = build_qdrant_filter(
-            filters or RetrievalFilters.from_legacy(document_id=document_id)
+        retrieval_filters = filters or RetrievalFilters.from_legacy(
+            document_id=document_id
         )
+        has_filters = _has_retrieval_filters(retrieval_filters)
 
         try:
             response = self.client.query_points(
                 collection_name=self.collection_name,
                 query=list(query_vector),
                 using=DENSE_VECTOR_NAME,
-                query_filter=query_filter,
-                limit=limit,
+                limit=DOCUMENT_SCAN_POINT_LIMIT if has_filters else limit,
                 score_threshold=score_threshold,
                 with_payload=True,
                 with_vectors=False,
@@ -501,7 +505,11 @@ class QdrantVectorStore:
                 "Unable to search the Qdrant collection."
             ) from error
 
-        return [self._convert_search_result(point) for point in response.points]
+        return self._convert_and_filter_search_points(
+            response.points,
+            filters=retrieval_filters,
+            limit=limit,
+        )
 
     def search_sparse(
         self,
@@ -523,9 +531,10 @@ class QdrantVectorStore:
         if limit <= 0:
             raise ValueError("limit must be greater than zero.")
 
-        query_filter = build_qdrant_filter(
-            filters or RetrievalFilters.from_legacy(document_id=document_id)
+        retrieval_filters = filters or RetrievalFilters.from_legacy(
+            document_id=document_id
         )
+        has_filters = _has_retrieval_filters(retrieval_filters)
 
         try:
             response = self.client.query_points(
@@ -535,8 +544,7 @@ class QdrantVectorStore:
                     values=list(query_values),
                 ),
                 using=SPARSE_VECTOR_NAME,
-                query_filter=query_filter,
-                limit=limit,
+                limit=DOCUMENT_SCAN_POINT_LIMIT if has_filters else limit,
                 with_payload=True,
                 with_vectors=False,
             )
@@ -550,7 +558,11 @@ class QdrantVectorStore:
                 "Unable to search the Qdrant collection."
             ) from error
 
-        return [self._convert_search_result(point) for point in response.points]
+        return self._convert_and_filter_search_points(
+            response.points,
+            filters=retrieval_filters,
+            limit=limit,
+        )
 
     def delete_document(
         self,
@@ -562,16 +574,17 @@ class QdrantVectorStore:
         if not normalized_document_id:
             raise ValueError("document_id cannot be empty.")
 
-        deleted_chunks = self._count_document_chunks(normalized_document_id)
-        if deleted_chunks == 0:
+        points = self._scroll_document_points(
+            normalized_document_id,
+            with_payload=True,
+        )
+        if not points:
             return 0
 
         try:
             self.client.delete(
                 collection_name=self.collection_name,
-                points_selector=models.FilterSelector(
-                    filter=self._build_required_document_filter(normalized_document_id)
-                ),
+                points_selector=[point.id for point in points],
                 wait=True,
             )
         except (
@@ -584,7 +597,7 @@ class QdrantVectorStore:
                 "Unable to delete document vectors from Qdrant."
             ) from error
 
-        return deleted_chunks
+        return len(points)
 
     def replace_document(
         self,
@@ -677,25 +690,46 @@ class QdrantVectorStore:
             raise ValueError("document_id cannot be empty.")
 
         detail: IndexedDocumentDetail | None = None
+        points = self._scroll_document_points(
+            normalized_document_id,
+            with_payload=True,
+        )
+        for point in points:
+            detail = self._merge_document_details(
+                detail,
+                self._convert_document_payload(point.payload or {}),
+            )
+
+        return detail
+
+    def _scroll_document_points(
+        self,
+        document_id: str,
+        *,
+        with_payload: bool,
+    ) -> list[models.Record]:
+        matching_points = []
         next_offset = None
+        scanned_points = 0
 
         try:
-            while True:
+            while scanned_points < DOCUMENT_SCAN_POINT_LIMIT:
                 points, next_offset = self.client.scroll(
                     collection_name=self.collection_name,
-                    scroll_filter=self._build_required_document_filter(
-                        normalized_document_id
+                    limit=min(
+                        DOCUMENT_SCROLL_BATCH_SIZE,
+                        DOCUMENT_SCAN_POINT_LIMIT - scanned_points,
                     ),
-                    limit=DOCUMENT_SCROLL_BATCH_SIZE,
                     offset=next_offset,
-                    with_payload=True,
+                    with_payload=with_payload,
                     with_vectors=False,
                 )
-                for point in points:
-                    detail = self._merge_document_details(
-                        detail,
-                        self._convert_document_payload(point.payload or {}),
-                    )
+                scanned_points += len(points)
+                matching_points.extend(
+                    point
+                    for point in points
+                    if (point.payload or {}).get("document_id") == document_id
+                )
                 if next_offset is None:
                     break
         except (
@@ -705,37 +739,10 @@ class QdrantVectorStore:
             OSError,
         ) as error:
             raise VectorStoreConnectionError(
-                "Unable to retrieve document metadata from Qdrant."
+                "Unable to inspect document vectors in Qdrant."
             ) from error
 
-        return detail
-
-    def _count_document_chunks(self, document_id: str) -> int:
-        count = 0
-        next_offset = None
-
-        try:
-            while True:
-                points, next_offset = self.client.scroll(
-                    collection_name=self.collection_name,
-                    scroll_filter=self._build_required_document_filter(document_id),
-                    limit=DOCUMENT_SCROLL_BATCH_SIZE,
-                    offset=next_offset,
-                    with_payload=False,
-                    with_vectors=False,
-                )
-                count += len(points)
-                if next_offset is None:
-                    return count
-        except (
-            UnexpectedResponse,
-            ConnectionError,
-            TimeoutError,
-            OSError,
-        ) as error:
-            raise VectorStoreConnectionError(
-                "Unable to count document vectors in Qdrant."
-            ) from error
+        return matching_points
 
     @staticmethod
     def _build_required_document_filter(document_id: str) -> models.Filter:
@@ -888,6 +895,36 @@ class QdrantVectorStore:
                 "word_count",
             ),
         )
+
+    def _convert_and_filter_search_points(
+        self,
+        points: Sequence[models.ScoredPoint],
+        *,
+        filters: RetrievalFilters,
+        limit: int,
+    ) -> list[DenseSearchResult]:
+        results = []
+        for point in points:
+            result = self._convert_search_result(point)
+            if not self._result_matches_filters(result, filters):
+                continue
+            results.append(result)
+            if len(results) >= limit:
+                break
+        return results
+
+    @staticmethod
+    def _result_matches_filters(
+        result: DenseSearchResult,
+        filters: RetrievalFilters,
+    ) -> bool:
+        if filters.document_ids and result.document_id not in filters.document_ids:
+            return False
+        if filters.content_types:
+            content_type = CONTENT_TYPE_BY_EXTENSION.get(result.file_extension)
+            if content_type not in filters.content_types:
+                return False
+        return True
 
     @staticmethod
     def _require_payload_string(

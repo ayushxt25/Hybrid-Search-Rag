@@ -27,7 +27,7 @@ describe("health API", () => {
     const fetcher = vi.fn().mockResolvedValue(await json({ status: "alive" }));
     vi.stubGlobal("fetch", fetcher);
     const result = await fetchLiveness();
-    expect(fetcher.mock.calls[0][0]).toBe(`http://127.0.0.1:8000${healthPaths.live}`);
+    expect(fetcher.mock.calls[0][0]).toBe(`${healthPaths.live}`);
     expect(result.requestId).toBe("rid-health");
   });
 
@@ -37,7 +37,7 @@ describe("health API", () => {
       .mockResolvedValue(await json({ status: "ready", components: {} }));
     vi.stubGlobal("fetch", fetcher);
     await fetchReadiness();
-    expect(fetcher.mock.calls[0][0]).toBe(`http://127.0.0.1:8000${healthPaths.ready}`);
+    expect(fetcher.mock.calls[0][0]).toBe(`${healthPaths.ready}`);
   });
 
   it("handles non-JSON errors safely", async () => {

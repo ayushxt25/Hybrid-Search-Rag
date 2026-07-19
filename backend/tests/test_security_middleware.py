@@ -70,12 +70,56 @@ def test_valid_trusted_host_accepted() -> None:
     assert response.status_code == 200
 
 
+def test_exact_production_trusted_host_accepted() -> None:
+    response = make_client(
+        trusted_hosts=[
+            "hybrid-search-studio.example.com",
+            "*.vercel.app",
+            "testserver",
+        ],
+    ).get(
+        "/api/v1/health",
+        headers={"host": "hybrid-search-studio.example.com"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_vercel_preview_trusted_host_accepted() -> None:
+    response = make_client(
+        trusted_hosts=[
+            "hybrid-search-studio.example.com",
+            "*.vercel.app",
+            "testserver",
+        ],
+    ).get(
+        "/api/v1/health",
+        headers={"host": "hybrid-search-studio-eb3upsnnr-valerian1.vercel.app"},
+    )
+
+    assert response.status_code == 200
+
+
 def test_invalid_trusted_host_rejected_with_400() -> None:
     response = make_client().get("/api/v1/health", headers={"host": "evil.test"})
 
     assert response.status_code == 400
     assert "X-Request-ID" in response.headers
     assert "X-Content-Type-Options" in response.headers
+    assert "evil.test" not in response.text
+
+
+def test_unrelated_host_rejected_with_vercel_preview_wildcard() -> None:
+    response = make_client(
+        trusted_hosts=[
+            "hybrid-search-studio.example.com",
+            "*.vercel.app",
+            "testserver",
+        ],
+    ).get("/api/v1/health", headers={"host": "evil.test"})
+
+    assert response.status_code == 400
+    assert "X-Request-ID" in response.headers
     assert "evil.test" not in response.text
 
 

@@ -65,6 +65,9 @@ class ReadinessService:
         return ComponentHealth(status="healthy")
 
     def _check_generation(self) -> ComponentHealth:
+        if self.settings.generation_provider == "deterministic":
+            return ComponentHealth(status="healthy")
+
         if (
             not self.settings.openai_generation_model.strip()
             or not self.settings.openai_api_key.strip()

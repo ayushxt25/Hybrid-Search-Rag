@@ -35,7 +35,7 @@ describe("retrieval API", () => {
     const fetcher = vi.fn().mockResolvedValue(await ok());
     vi.stubGlobal("fetch", fetcher);
     const result = await searchDense(basePayload);
-    expect(fetcher.mock.calls[0][0]).toBe("http://127.0.0.1:8000/api/v1/search/dense");
+    expect(fetcher.mock.calls[0][0]).toBe("/api/v1/search/dense");
     const body = JSON.parse(fetcher.mock.calls[0][1].body as string);
     expect(body).toEqual({
       query: "marker",
@@ -69,7 +69,7 @@ describe("retrieval API", () => {
     const fetcher = vi.fn().mockResolvedValue(await ok());
     vi.stubGlobal("fetch", fetcher);
     await searchSparse(basePayload);
-    expect(fetcher.mock.calls[0][0]).toBe("http://127.0.0.1:8000/api/v1/search/sparse");
+    expect(fetcher.mock.calls[0][0]).toBe("/api/v1/search/sparse");
     expect(JSON.parse(fetcher.mock.calls[0][1].body as string)).toEqual({
       query: "marker",
       limit: 5,
@@ -84,7 +84,7 @@ describe("retrieval API", () => {
     vi.stubGlobal("fetch", fetcher);
     await searchHybrid(basePayload);
     const body = JSON.parse(fetcher.mock.calls[0][1].body as string);
-    expect(fetcher.mock.calls[0][0]).toBe("http://127.0.0.1:8000/api/v1/search/hybrid");
+    expect(fetcher.mock.calls[0][0]).toBe("/api/v1/search/hybrid");
     expect(body).toEqual({
       query: "marker",
       limit: 5,

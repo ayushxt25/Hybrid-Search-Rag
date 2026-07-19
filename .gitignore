@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+.vercel/
 
 # Python virtual environments
 .venv/
@@ -45,6 +46,7 @@ dist/
 frontend/dist/
 frontend/.env
 frontend/coverage/
+public/
 
 # Editors
 .vscode/
@@ -54,3 +56,6 @@ frontend/coverage/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+.vercel
+.env*

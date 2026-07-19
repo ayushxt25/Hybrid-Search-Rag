@@ -60,6 +60,83 @@ def test_qdrant_health_timeout_environment_override(monkeypatch) -> None:
     assert settings.qdrant_api_key == "qdrant-key"
 
 
+def test_trusted_hosts_accepts_scoped_vercel_preview_wildcard(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "TRUSTED_HOSTS",
+        '["hybrid-search-studio.example.com", "*.vercel.app"]',
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.trusted_hosts == [
+        "hybrid-search-studio.example.com",
+        "*.vercel.app",
+    ]
+
+
+def test_trusted_hosts_accepts_comma_separated_environment_value(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "TRUSTED_HOSTS",
+        "hybrid-search-studio.example.com,*.vercel.app",
+    )
+
+    settings = Settings(_env_file=None)
+
+    assert settings.trusted_hosts == [
+        "hybrid-search-studio.example.com",
+        "*.vercel.app",
+    ]
+
+
+def test_trusted_hosts_accepts_single_scoped_wildcard_environment_value(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("TRUSTED_HOSTS", "*.vercel.app")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.trusted_hosts == ["*.vercel.app"]
+
+
+def test_trusted_hosts_rejects_global_wildcard(monkeypatch) -> None:
+    monkeypatch.setenv("TRUSTED_HOSTS", '["*"]')
+
+    with pytest.raises(ValidationError, match="global wildcard"):
+        Settings(_env_file=None)
+
+
+def test_trusted_hosts_rejects_unscoped_wildcard_pattern(monkeypatch) -> None:
+    monkeypatch.setenv("TRUSTED_HOSTS", "hybrid-search-studio-*.vercel.app")
+
+    with pytest.raises(ValidationError, match="scoped subdomain"):
+        Settings(_env_file=None)
+
+
+def test_gemini_embedding_environment_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("DENSE_EMBEDDING_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
+    monkeypatch.setenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+    monkeypatch.setenv("GEMINI_EMBEDDING_DIMENSION", "768")
+    monkeypatch.setenv("GEMINI_EMBEDDING_TIMEOUT_SECONDS", "12.5")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.dense_embedding_provider == "gemini"
+    assert settings.dense_embedding_dimensions == 768
+    assert settings.gemini_embedding_model == "gemini-embedding-001"
+    assert settings.gemini_embedding_timeout_seconds == 12.5
+
+
+def test_vercel_upload_limit_environment_override(monkeypatch) -> None:
+    monkeypatch.setenv("MAX_DOCUMENT_UPLOAD_BYTES", "4000000")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.max_document_upload_bytes == 4_000_000
+
+
 def test_context_environment_overrides(monkeypatch) -> None:
     monkeypatch.setenv("CONTEXT_MAX_CHARACTERS", "5000")
     monkeypatch.setenv("CONTEXT_MAX_SOURCES", "4")

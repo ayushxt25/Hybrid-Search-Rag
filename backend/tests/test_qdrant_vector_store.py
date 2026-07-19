@@ -1,8 +1,11 @@
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
+import httpx
 import pytest
 from qdrant_client import QdrantClient, models
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from app.embeddings.sentence_transformer import (
     SentenceTransformerEmbeddingProvider,
@@ -13,11 +16,13 @@ from app.schemas.embedding import ChunkEmbedding, ChunkSparseEmbedding
 from app.sparse.hashed_lexical import HashedLexicalSparseProvider
 from app.vectorstore.exceptions import (
     VectorStoreConfigurationError,
+    VectorStoreConnectionError,
     VectorStoreDataError,
 )
 from app.vectorstore.identifiers import generate_qdrant_point_id
 from app.vectorstore.qdrant import (
     DENSE_VECTOR_NAME,
+    DOCUMENT_SCAN_POINT_LIMIT,
     SPARSE_VECTOR_NAME,
     QdrantVectorStore,
 )
@@ -101,6 +106,32 @@ def create_dense_embeddings(
 
 def create_sparse_embeddings(document) -> list[ChunkSparseEmbedding]:
     return HashedLexicalSparseProvider().embed_chunks(document.chunks)
+
+
+def qdrant_payload(
+    document_id: str,
+    *,
+    file_name: str = "policy.txt",
+    file_extension: str = ".txt",
+    chunk_id: str = "c",
+    chunk_index: int = 0,
+) -> dict:
+    return {
+        "chunk_id": (chunk_id * 64)[:64],
+        "document_id": document_id,
+        "file_name": file_name,
+        "file_extension": file_extension,
+        "content_hash": document_id,
+        "content_type": "text/plain",
+        "chunk_index": chunk_index,
+        "section_index": 0,
+        "page_number": None,
+        "heading": None,
+        "text": "safe payload text",
+        "start_word": 0,
+        "end_word": 3,
+        "word_count": 3,
+    }
 
 
 def test_ensure_collection_is_idempotent(
@@ -526,6 +557,212 @@ def test_sparse_search_supports_content_type_filtering(
     }
 
 
+def test_dense_query_points_uses_raw_vector_and_named_dense_vector() -> None:
+    document_id = "d" * 64
+
+    class CapturingClient:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        def query_points(self, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(
+                points=[
+                    SimpleNamespace(
+                        id="point-1",
+                        score=0.9,
+                        payload=qdrant_payload(document_id),
+                    )
+                ]
+            )
+
+    client = CapturingClient()
+    store = QdrantVectorStore(
+        client=client,
+        collection_name="preview",
+        vector_dimensions=768,
+        sparse_enabled=True,
+    )
+    query_vector = [0.0] * 768
+    query_vector[0] = 1.0
+
+    results = store.search_dense(query_vector=query_vector, limit=3)
+
+    assert results[0].document_id == document_id
+    assert client.kwargs["query"] == query_vector
+    assert client.kwargs["using"] == DENSE_VECTOR_NAME
+    assert client.kwargs["limit"] == 3
+    assert "query_filter" not in client.kwargs
+    assert client.kwargs["with_payload"] is True
+    assert client.kwargs["with_vectors"] is False
+
+
+def test_sparse_query_points_uses_sparse_vector_and_named_sparse_vector() -> None:
+    document_id = "e" * 64
+
+    class CapturingClient:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        def query_points(self, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(
+                points=[
+                    SimpleNamespace(
+                        id="point-1",
+                        score=0.8,
+                        payload=qdrant_payload(document_id),
+                    )
+                ]
+            )
+
+    client = CapturingClient()
+    store = QdrantVectorStore(
+        client=client,
+        collection_name="preview",
+        vector_dimensions=768,
+        sparse_enabled=True,
+    )
+
+    results = store.search_sparse(
+        query_indices=[3, 10],
+        query_values=[0.25, 0.75],
+        limit=2,
+    )
+
+    sparse_query = client.kwargs["query"]
+    assert results[0].document_id == document_id
+    assert isinstance(sparse_query, models.SparseVector)
+    assert sparse_query.indices == [3, 10]
+    assert sparse_query.values == [0.25, 0.75]
+    assert client.kwargs["using"] == SPARSE_VECTOR_NAME
+    assert client.kwargs["limit"] == 2
+    assert "query_filter" not in client.kwargs
+
+
+def test_dense_filtering_is_applied_after_preview_compatible_query() -> None:
+    target_document_id = "f" * 64
+    other_document_id = "1" * 64
+
+    class CapturingClient:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        def query_points(self, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(
+                points=[
+                    SimpleNamespace(
+                        id="other",
+                        score=0.99,
+                        payload=qdrant_payload(other_document_id, chunk_id="a"),
+                    ),
+                    SimpleNamespace(
+                        id="target",
+                        score=0.5,
+                        payload=qdrant_payload(target_document_id, chunk_id="b"),
+                    ),
+                ]
+            )
+
+    client = CapturingClient()
+    store = QdrantVectorStore(
+        client=client,
+        collection_name="preview",
+        vector_dimensions=768,
+        sparse_enabled=True,
+    )
+
+    results = store.search_dense(
+        query_vector=[1.0] + [0.0] * 767,
+        limit=1,
+        filters=RetrievalFilters(document_ids=[target_document_id]),
+    )
+
+    assert [result.document_id for result in results] == [target_document_id]
+    assert client.kwargs["limit"] == DOCUMENT_SCAN_POINT_LIMIT
+    assert "query_filter" not in client.kwargs
+
+
+def test_sparse_filtering_is_applied_after_preview_compatible_query() -> None:
+    target_document_id = "2" * 64
+    other_document_id = "3" * 64
+
+    class CapturingClient:
+        def __init__(self) -> None:
+            self.kwargs = None
+
+        def query_points(self, **kwargs):
+            self.kwargs = kwargs
+            return SimpleNamespace(
+                points=[
+                    SimpleNamespace(
+                        id="other",
+                        score=0.99,
+                        payload=qdrant_payload(
+                            other_document_id,
+                            file_extension=".txt",
+                            chunk_id="a",
+                        ),
+                    ),
+                    SimpleNamespace(
+                        id="target",
+                        score=0.5,
+                        payload=qdrant_payload(
+                            target_document_id,
+                            file_extension=".md",
+                            chunk_id="b",
+                        ),
+                    ),
+                ]
+            )
+
+    client = CapturingClient()
+    store = QdrantVectorStore(
+        client=client,
+        collection_name="preview",
+        vector_dimensions=768,
+        sparse_enabled=True,
+    )
+
+    results = store.search_sparse(
+        query_indices=[1],
+        query_values=[1.0],
+        limit=1,
+        filters=RetrievalFilters(content_types=["text/markdown"]),
+    )
+
+    assert [result.document_id for result in results] == [target_document_id]
+    assert client.kwargs["limit"] == DOCUMENT_SCAN_POINT_LIMIT
+    assert "query_filter" not in client.kwargs
+
+
+def test_query_points_bad_request_maps_to_sanitized_connection_error() -> None:
+    class FailingQueryClient:
+        def query_points(self, **kwargs):
+            raise UnexpectedResponse(
+                400,
+                "Bad Request",
+                b"raw qdrant payload and vector detail",
+                httpx.Headers(),
+            )
+
+    store = QdrantVectorStore(
+        client=FailingQueryClient(),
+        collection_name="preview",
+        vector_dimensions=768,
+        sparse_enabled=True,
+    )
+
+    with pytest.raises(
+        VectorStoreConnectionError,
+        match="Unable to search the Qdrant collection.",
+    ) as error:
+        store.search_dense(query_vector=[1.0] + [0.0] * 767)
+
+    assert "raw qdrant" not in str(error.value)
+
+
 def test_delete_document_removes_its_points(
     tmp_path: Path,
     vector_store: QdrantVectorStore,
@@ -551,6 +788,39 @@ def test_delete_document_removes_its_points(
 
     assert deleted_chunks == document.chunk_count
     assert results == []
+
+
+def test_delete_document_does_not_remove_unrelated_document(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    first = create_ingested_document(
+        tmp_path,
+        file_name="shared.txt",
+        content="First shared filename document.",
+    )
+    second = create_ingested_document(
+        tmp_path,
+        file_name="shared.txt",
+        content="Second shared filename document.",
+    )
+    for document in (first, second):
+        sparse_vector_store.upsert_hybrid_document(
+            ingested_document=document,
+            dense_embeddings=create_dense_embeddings(document),
+            sparse_embeddings=create_sparse_embeddings(document),
+        )
+
+    deleted_chunks = sparse_vector_store.delete_document(
+        first.document.document_id,
+    )
+
+    assert deleted_chunks == first.chunk_count
+    assert sparse_vector_store.get_document(first.document.document_id) is None
+    remaining = sparse_vector_store.get_document(second.document.document_id)
+    assert remaining is not None
+    assert remaining.document_id == second.document.document_id
+    assert remaining.filename == "shared.txt"
 
 
 def test_list_documents_aggregates_chunks_without_text_or_vectors(
@@ -613,10 +883,99 @@ def test_get_document_returns_none_for_missing_document(
     assert sparse_vector_store.get_document("a" * 64) is None
 
 
+def test_get_document_uses_api_document_id_not_qdrant_point_id(
+    tmp_path: Path,
+    sparse_vector_store: QdrantVectorStore,
+) -> None:
+    document = create_ingested_document(
+        tmp_path,
+        content="API document IDs are stored in payload metadata.",
+    )
+    sparse_vector_store.upsert_hybrid_document(
+        ingested_document=document,
+        dense_embeddings=create_dense_embeddings(document),
+        sparse_embeddings=create_sparse_embeddings(document),
+    )
+    point_id = generate_qdrant_point_id(document.chunks[0].chunk_id)
+
+    assert sparse_vector_store.get_document(str(point_id)) is None
+    detail = sparse_vector_store.get_document(document.document.document_id)
+    assert detail is not None
+    assert detail.document_id == document.document.document_id
+
+
 def test_delete_document_returns_zero_for_missing_document(
     sparse_vector_store: QdrantVectorStore,
 ) -> None:
     assert sparse_vector_store.delete_document("a" * 64) == 0
+
+
+def test_document_detail_and_delete_avoid_filtered_scroll_for_preview_client() -> None:
+    document_id = "b" * 64
+    payload = {
+        "document_id": document_id,
+        "file_name": "preview_acceptance_policy.txt",
+        "content_type": "text/plain",
+        "content_hash": document_id,
+        "chunk_index": 0,
+        "page_number": None,
+        "heading": None,
+    }
+    point = SimpleNamespace(id="point-1", payload=payload)
+
+    class PreviewStyleClient:
+        def __init__(self) -> None:
+            self.deleted_selectors = []
+
+        def scroll(self, **kwargs):
+            if kwargs.get("scroll_filter") is not None:
+                raise UnexpectedResponse(
+                    400,
+                    "Bad Request",
+                    b"filtered scroll rejected",
+                    httpx.Headers(),
+                )
+            return [point], None
+
+        def delete(self, **kwargs):
+            self.deleted_selectors.append(kwargs["points_selector"])
+
+    client = PreviewStyleClient()
+    store = QdrantVectorStore(
+        client=client,
+        collection_name="preview",
+        vector_dimensions=768,
+        sparse_enabled=True,
+    )
+
+    detail = store.get_document(document_id)
+    deleted_chunks = store.delete_document(document_id)
+
+    assert detail is not None
+    assert detail.document_id == document_id
+    assert deleted_chunks == 1
+    assert client.deleted_selectors == [["point-1"]]
+
+
+def test_document_detail_qdrant_failure_maps_to_connection_error() -> None:
+    class FailingScrollClient:
+        def scroll(self, **kwargs):
+            raise UnexpectedResponse(
+                400,
+                "Bad Request",
+                b"scroll rejected",
+                httpx.Headers(),
+            )
+
+    store = QdrantVectorStore(
+        client=FailingScrollClient(),
+        collection_name="preview",
+        vector_dimensions=768,
+        sparse_enabled=True,
+    )
+
+    with pytest.raises(VectorStoreConnectionError):
+        store.get_document("b" * 64)
 
 
 def test_list_documents_uses_document_cursor(

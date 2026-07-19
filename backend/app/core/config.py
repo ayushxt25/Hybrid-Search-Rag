@@ -1,9 +1,11 @@
+import json
 import re
 from functools import lru_cache
 from math import isfinite
+from typing import Annotated
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -17,7 +19,11 @@ class Settings(BaseSettings):
     observability_enabled: bool = True
     readiness_enabled: bool = True
     security_headers_enabled: bool = True
-    trusted_hosts: list[str] = ["localhost", "127.0.0.1", "testserver"]
+    trusted_hosts: Annotated[list[str], NoDecode] = [
+        "localhost",
+        "127.0.0.1",
+        "testserver",
+    ]
     cors_enabled: bool = False
     cors_allowed_origins: list[str] = []
     cors_allow_credentials: bool = False
@@ -34,6 +40,11 @@ class Settings(BaseSettings):
     qdrant_hybrid_collection_name: str = "internal_document_chunks_hybrid"
     qdrant_health_timeout_seconds: float = Field(default=3.0, gt=0)
     dense_embedding_dimensions: int = Field(default=384, gt=0)
+    dense_embedding_provider: str = "sentence_transformers"
+    gemini_api_key: str = ""
+    gemini_embedding_model: str = "gemini-embedding-001"
+    gemini_embedding_dimension: int = Field(default=768, gt=0)
+    gemini_embedding_timeout_seconds: float = Field(default=30.0, gt=0)
     hybrid_dense_weight: float = 1.5
     hybrid_sparse_weight: float = 1.0
     hybrid_rrf_k: int = Field(default=60, gt=0)
@@ -66,12 +77,45 @@ class Settings(BaseSettings):
 
         return normalized_value
 
-    @field_validator("trusted_hosts")
+    @field_validator("trusted_hosts", mode="before")
     @classmethod
-    def validate_trusted_hosts(cls, value: list[str]) -> list[str]:
-        normalized_hosts = [host.strip() for host in value]
+    def validate_trusted_hosts(cls, value: object) -> list[str]:
+        if isinstance(value, str):
+            raw_value = value.strip()
+            if raw_value.startswith("["):
+                try:
+                    value = json.loads(raw_value)
+                except json.JSONDecodeError as error:
+                    raise ValueError(
+                        "trusted_hosts JSON value must be a list of strings."
+                    ) from error
+            else:
+                value = raw_value.split(",")
+
+        if not isinstance(value, list):
+            raise ValueError("trusted_hosts must be a list of host patterns.")
+
+        normalized_hosts = []
+        for host in value:
+            if not isinstance(host, str):
+                raise ValueError("trusted_hosts must contain string values.")
+            normalized_hosts.append(host.strip())
+
         if not normalized_hosts or any(not host for host in normalized_hosts):
             raise ValueError("trusted_hosts must contain non-blank values.")
+
+        if "*" in normalized_hosts:
+            raise ValueError("trusted_hosts cannot contain the global wildcard '*'.")
+
+        invalid_wildcards = [
+            host
+            for host in normalized_hosts
+            if "*" in host and (not host.startswith("*.") or host.count("*") != 1)
+        ]
+        if invalid_wildcards:
+            raise ValueError(
+                "trusted_hosts wildcard entries must be scoped subdomain patterns."
+            )
 
         return normalized_hosts
 
@@ -94,6 +138,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "openai_generation_timeout_seconds",
+        "gemini_embedding_timeout_seconds",
         "qdrant_health_timeout_seconds",
         mode="before",
     )
@@ -126,6 +171,16 @@ class Settings(BaseSettings):
         normalized_value = value.strip().lower()
         if normalized_value not in {"openai", "deterministic"}:
             raise ValueError("generation_provider must be openai or deterministic.")
+        return normalized_value
+
+    @field_validator("dense_embedding_provider")
+    @classmethod
+    def validate_dense_embedding_provider(cls, value: str) -> str:
+        normalized_value = value.strip().lower()
+        if normalized_value not in {"sentence_transformers", "gemini"}:
+            raise ValueError(
+                "dense_embedding_provider must be sentence_transformers or gemini."
+            )
         return normalized_value
 
     @field_validator("cors_allow_credentials")
@@ -173,6 +228,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "api_auth_key_sha256 is required when api_auth_enabled is true."
             )
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_dense_embedding_configuration(self) -> "Settings":
+        if self.dense_embedding_provider == "gemini":
+            if not self.gemini_api_key.strip():
+                raise ValueError(
+                    "gemini_api_key is required when dense_embedding_provider "
+                    "is gemini."
+                )
+            self.dense_embedding_dimensions = self.gemini_embedding_dimension
 
         return self
 

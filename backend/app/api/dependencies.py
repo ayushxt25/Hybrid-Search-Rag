@@ -27,6 +27,7 @@ from app.vectorstore.qdrant import QdrantVectorStore
 logger = logging.getLogger("app.dependencies")
 auth_logger = logging.getLogger("app.security")
 SentenceTransformerEmbeddingProvider = None
+GeminiEmbeddingProvider = None
 
 
 class Closeable(Protocol):
@@ -56,6 +57,24 @@ def _qdrant_api_key_kwargs(settings) -> dict[str, str]:
 @lru_cache
 def get_embedding_provider():
     """Return the shared dense-embedding provider."""
+    settings = get_settings()
+    if (
+        getattr(settings, "dense_embedding_provider", "sentence_transformers")
+        == "gemini"
+    ):
+        global GeminiEmbeddingProvider
+        if GeminiEmbeddingProvider is None:
+            from app.embeddings.gemini import GeminiEmbeddingProvider as provider_class
+
+            GeminiEmbeddingProvider = provider_class
+
+        return GeminiEmbeddingProvider(
+            api_key=settings.gemini_api_key,
+            model_name=settings.gemini_embedding_model,
+            dimensions=settings.gemini_embedding_dimension,
+            timeout_seconds=settings.gemini_embedding_timeout_seconds,
+        )
+
     global SentenceTransformerEmbeddingProvider
     if SentenceTransformerEmbeddingProvider is None:
         from app.embeddings.sentence_transformer import (

@@ -2,12 +2,15 @@ from unittest.mock import Mock
 
 import pytest
 
+from app.context.assembler import ContextAssembler
 from app.context.models import AssembledContext, ContextSource
+from app.generation.deterministic import DeterministicAcceptanceGenerationProvider
 from app.generation.models import GenerationOutput, GroundedAnswerRequest
 from app.generation.service import (
     INSUFFICIENT_CONTEXT_ANSWER,
     GroundedAnswerService,
 )
+from app.prompting.builder import GroundedPromptBuilder
 from app.prompting.models import GroundedPromptPackage
 from app.retrieval.filters import RetrievalFilters
 from app.schemas.search import DenseSearchResult
@@ -64,6 +67,32 @@ def create_result(chunk_id: str = "a" * 64) -> DenseSearchResult:
         start_word=0,
         end_word=4,
         word_count=4,
+    )
+
+
+def create_text_result(
+    *,
+    text: str,
+    chunk_id: str = "a" * 64,
+    document_id: str = DOCUMENT_ID,
+    file_name: str = "policy.txt",
+    score: float = 0.9,
+) -> DenseSearchResult:
+    return DenseSearchResult(
+        point_id=f"point-{chunk_id}",
+        chunk_id=chunk_id,
+        document_id=document_id,
+        score=score,
+        file_name=file_name,
+        file_extension=".txt",
+        chunk_index=0,
+        section_index=0,
+        page_number=1,
+        heading="Policy",
+        text=text,
+        start_word=0,
+        end_word=len(text.split()),
+        word_count=len(text.split()),
     )
 
 
@@ -513,6 +542,67 @@ def test_no_filtered_evidence_skips_provider() -> None:
 
     assert result.insufficient_context is True
     assert provider.calls == []
+
+
+def test_deterministic_provider_endpoint_path_answers_frequency_fact() -> None:
+    search_service = Mock()
+    search_service.search.return_value = HybridSearchResponse(
+        query="How often is the aurora ledger reviewed?",
+        result_count=1,
+        results=[
+            create_text_result(
+                text="The aurora ledger is reviewed every 23 days.",
+                file_name="aurora.txt",
+            )
+        ],
+    )
+    service = GroundedAnswerService(
+        hybrid_search_service=search_service,
+        context_assembler=ContextAssembler(),
+        prompt_builder=GroundedPromptBuilder(),
+        generation_provider=DeterministicAcceptanceGenerationProvider(),
+        observability_enabled=False,
+    )
+
+    result = service.answer(
+        GroundedAnswerRequest(question="How often is the aurora ledger reviewed?")
+    )
+
+    assert result.answer == "The aurora ledger is reviewed every 23 days. [Source 1]"
+    assert result.citations[0].file_name == "aurora.txt"
+    assert result.citation_markers == [1]
+    assert result.insufficient_context is False
+
+
+def test_deterministic_provider_endpoint_path_returns_insufficient_context() -> None:
+    search_service = Mock()
+    search_service.search.return_value = HybridSearchResponse(
+        query="What color is the finance dashboard?",
+        result_count=1,
+        results=[
+            create_text_result(
+                text="The aurora ledger is reviewed every 23 days.",
+                file_name="aurora.txt",
+            )
+        ],
+    )
+    service = GroundedAnswerService(
+        hybrid_search_service=search_service,
+        context_assembler=ContextAssembler(),
+        prompt_builder=GroundedPromptBuilder(),
+        generation_provider=DeterministicAcceptanceGenerationProvider(),
+        observability_enabled=False,
+    )
+
+    result = service.answer(
+        GroundedAnswerRequest(question="What color is the finance dashboard?")
+    )
+
+    assert result.answer == INSUFFICIENT_CONTEXT_ANSWER
+    assert result.citations == []
+    assert result.citation_markers == []
+    assert result.context_source_count == 0
+    assert result.insufficient_context is True
 
 
 def test_timing_callback_called_once_on_success() -> None:

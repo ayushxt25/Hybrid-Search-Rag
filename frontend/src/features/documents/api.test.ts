@@ -29,7 +29,7 @@ describe("document API", () => {
     const fetcher = vi.fn().mockResolvedValue(await ok({ documents: [] }));
     vi.stubGlobal("fetch", fetcher);
     await listDocuments();
-    expect(fetcher.mock.calls[0][0]).toBe("http://127.0.0.1:8000/api/v1/documents");
+    expect(fetcher.mock.calls[0][0]).toBe("/api/v1/documents");
   });
 
   it("encodes document IDs for detail requests", async () => {

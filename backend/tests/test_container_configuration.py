@@ -78,7 +78,7 @@ def test_huggingface_dockerfile_is_api_only_non_root_port_7860() -> None:
     assert "FROM python:3.11-slim AS builder" in dockerfile
     assert "FROM python:3.11-slim AS runtime" in dockerfile
     assert "COPY backend/app ./backend/app" in dockerfile
-    assert "sentence-transformers==5.6.0" in pyproject
+    assert "sentence-transformers" not in pyproject
     assert "https://download.pytorch.org/whl/cpu" in dockerfile
     assert '"torch==2.9.1+cpu"' in dockerfile
     assert "SENTENCE_TRANSFORMERS_HOME" in dockerfile
@@ -93,6 +93,39 @@ def test_huggingface_dockerfile_is_api_only_non_root_port_7860() -> None:
     assert "QDRANT_API_KEY" not in dockerfile
     assert "API_AUTH_KEY_SHA256" not in dockerfile
     assert "OPENAI_API_KEY" not in dockerfile
+
+
+def test_cloud_run_dockerfile_is_api_only_non_root_and_uses_port_env() -> None:
+    dockerfile = read("deployment/google-cloud-run/Dockerfile")
+
+    assert "FROM python:3.11-slim AS builder" in dockerfile
+    assert "FROM python:3.11-slim AS runtime" in dockerfile
+    assert "COPY backend/app ./backend/app" in dockerfile
+    assert '"sentence-transformers==5.6.0"' in dockerfile
+    assert "https://download.pytorch.org/whl/cpu" in dockerfile
+    assert '"torch==2.9.1+cpu"' in dockerfile
+    assert "HF_HOME=/tmp/huggingface" in dockerfile
+    assert "USER 10001:10001" in dockerfile
+    assert "--host 0.0.0.0" in dockerfile
+    assert "${PORT:-8000}" in dockerfile
+    assert "--workers 1" in dockerfile
+    assert "app.main:app" in dockerfile
+    assert "npm" not in dockerfile
+    assert "qdrant/qdrant" not in dockerfile
+    assert "QDRANT_API_KEY" not in dockerfile
+    assert "API_AUTH_KEY_SHA256" not in dockerfile
+    assert "OPENAI_API_KEY" not in dockerfile
+
+
+def test_cloud_run_documentation_keeps_persistent_data_external() -> None:
+    docs = read("deployment/google-cloud-run/DEPLOYMENT.md")
+
+    assert "Qdrant Cloud remains the persistent vector store" in docs
+    assert "ephemeral" in docs
+    assert "Persistent document/vector data must stay in Qdrant Cloud" in docs
+    assert "Minimum instances: `0`" in docs
+    assert "Maximum instances: `1`" in docs
+    assert "Concurrency: `1`" in docs
 
 
 def test_root_dockerfile_and_compose_ports_remain_unchanged() -> None:
