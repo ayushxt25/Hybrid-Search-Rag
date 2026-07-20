@@ -39,6 +39,37 @@ Public visitors can inspect the interface and health experience. Document upload
 5. Inspect citation metadata and source evidence.
 6. Delete the temporary document.
 
+## Product Walkthrough
+
+Selected Production views showing document-aware retrieval, explainable ranking, and citation-backed answers.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Overview</strong><br>
+      <sub>Production dashboard highlighting ingestion, dense and sparse retrieval, weighted-RRF search, metadata filtering, and observability.</sub><br><br>
+      <img src="docs/screenshots/overview.png" alt="Hybrid Search Studio overview dashboard" width="100%">
+    </td>
+    <td width="50%" valign="top">
+      <strong>Hybrid Retrieval</strong><br>
+      <sub>Document-scoped hybrid search combining semantic and lexical retrieval.</sub><br><br>
+      <img src="docs/screenshots/retrieval-results.png" alt="Hybrid retrieval results in the Retrieval Playground" width="100%">
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <strong>Explainable Ranking</strong><br>
+      <sub>Dense and sparse branch diagnostics with weighted reciprocal-rank-fusion contributions.</sub><br><br>
+      <img src="docs/screenshots/retrieval-diagnostics.png" alt="Weighted RRF score diagnostics for a hybrid search result" width="100%">
+    </td>
+    <td width="50%" valign="top">
+      <strong>Grounded Answer</strong><br>
+      <sub>Citation-backed answer generation with traceable source evidence.</sub><br><br>
+      <img src="docs/screenshots/grounded-answer.png" alt="Grounded answer with citations and source evidence" width="100%">
+    </td>
+  </tr>
+</table>
+
 ## Why This Project Exists
 
 Internal-document search has several practical failure modes. Keyword search can miss semantic matches, vector-only retrieval can miss exact terminology, and generated answers need traceable evidence rather than unsupported prose. A useful RAG application also needs document lifecycle management, metadata filtering, authentication, health checks, and operational diagnostics.
