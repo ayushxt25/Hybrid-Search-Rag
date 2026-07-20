@@ -1,584 +1,417 @@
-## Retrieval And Context Assembly
+# Hybrid Search RAG
 
-Hybrid retrieval ranks candidate chunks with dense and sparse search. The
-context assembly layer then converts those ranked chunks into a deterministic,
-citation-ready context package before any generation step.
+[![CI](https://github.com/ayushxt25/Hybrid-Search-Rag/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ayushxt25/Hybrid-Search-Rag/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11--3.12-3776AB)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688)
+![React](https://img.shields.io/badge/React-18-61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-3178C6)
+![Deployment](https://img.shields.io/badge/Vercel-Production-black)
 
-Dense, sparse, hybrid, and grounded-answer retrieval support scoped retrieval
-with the legacy `document_id` field, `document_ids` arrays, and `content_types`
-arrays. `document_id` is merged into `document_ids` when both are supplied, with
-duplicates removed. Supported content types are `text/plain`, `text/markdown`,
-`application/pdf`, and
-`application/vnd.openxmlformats-officedocument.wordprocessingml.document`.
-Filters are applied inside Qdrant before ranking and fusion; results are not
-post-filtered in application code. Unknown but valid document IDs return normal
-empty result sets. Actual document IDs and content-type values are not logged.
-Requests may include up to 20 document IDs and 10 content types.
+A production-oriented Retrieval-Augmented Generation application for ingesting internal documents, combining dense and sparse retrieval, and generating citation-backed answers over retrieved evidence.
 
-Dense search:
+Hybrid Search RAG is built as a full-stack engineering portfolio project: a React developer console, a FastAPI backend, Qdrant-backed hybrid search, provider-configurable embeddings and generation, API-key authentication, health checks, request observability, and automated backend/frontend validation.
 
-```json
-{
-  "query": "remote work policy",
-  "document_ids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
-  "content_types": ["text/plain"]
-}
+- Live application: [hybrid-search-studio-three.vercel.app](https://hybrid-search-studio-three.vercel.app)
+- Repository: [github.com/ayushxt25/Hybrid-Search-Rag](https://github.com/ayushxt25/Hybrid-Search-Rag)
+
+## Live Demo
+
+The current Production deployment is hosted on Vercel and uses same-origin API routing under `/api/v1`.
+
+| View | Link |
+| --- | --- |
+| Application | [Open app](https://hybrid-search-studio-three.vercel.app) |
+| Documents | [Manage documents](https://hybrid-search-studio-three.vercel.app/documents) |
+| Retrieval Playground | [Test retrieval](https://hybrid-search-studio-three.vercel.app/retrieval) |
+| Grounded Answers | [Ask grounded questions](https://hybrid-search-studio-three.vercel.app/answers) |
+| System Health | [Inspect health](https://hybrid-search-studio-three.vercel.app/system) |
+
+Production uses Gemini embeddings and Qdrant Cloud. Protected API operations require an authorized session API key; the frontend never embeds that key. When a user enters a key in System Health, it is stored only in browser `sessionStorage` for the active tab/session and is sent as the `X-API-Key` header.
+
+Public visitors can inspect the interface and health experience. Document upload, retrieval, grounded-answer, and deletion workflows require authorized demo credentials.
+
+### Demo Workflow
+
+1. Open [System Health](https://hybrid-search-studio-three.vercel.app/system) and save a session API key.
+2. Upload a TXT, Markdown, PDF, or DOCX document.
+3. Test dense, sparse, or hybrid retrieval.
+4. Ask a grounded question over the uploaded document.
+5. Inspect citation metadata and source evidence.
+6. Delete the temporary document.
+
+## Why This Project Exists
+
+Internal-document search has several practical failure modes. Keyword search can miss semantic matches, vector-only retrieval can miss exact terminology, and generated answers need traceable evidence rather than unsupported prose. A useful RAG application also needs document lifecycle management, metadata filtering, authentication, health checks, and operational diagnostics.
+
+This project implements those pieces together so the retrieval path, grounding path, frontend workflow, and deployment constraints can be evaluated as one system.
+
+## Key Features
+
+### Document Ingestion and Lifecycle
+
+- TXT, Markdown, PDF, and DOCX ingestion.
+- Text normalization and deterministic word-based chunking.
+- Deterministic document and chunk identifiers from normalized content.
+- Document listing, metadata detail, replacement, and deletion.
+- Upload validation by extension, content, and configured size limit.
+
+### Hybrid Retrieval
+
+- Dense semantic retrieval through the configured embedding provider.
+- Sparse lexical retrieval through a deterministic hashed lexical provider.
+- Application-side weighted Reciprocal Rank Fusion.
+- Document ID and content-type filters.
+- Configurable candidate/result limits.
+- Optional score diagnostics with branch ranks, raw branch scores, RRF contributions, fused rank, and fused score.
+
+### Grounded Answers
+
+- Hybrid retrieval followed by bounded context assembly.
+- Prompt construction that treats retrieved text as evidence, not instructions.
+- Citation marker validation against available sources.
+- Insufficient-context responses when evidence is missing or inadequate.
+- Provider abstraction with deterministic and OpenAI-compatible generation providers.
+
+### Production and Security
+
+- API-key authentication with SHA-256 digest verification.
+- Session-only frontend API key handling in `sessionStorage`.
+- Trusted-host validation and disabled-by-default CORS.
+- Same-origin Vercel deployment for frontend and API.
+- Request IDs on API responses.
+- Structured allowlisted observability logs.
+- Liveness and readiness endpoints.
+- Sanitized third-party HTTP transport logging.
+- In-memory grounded-answer rate limiting.
+
+### Developer Experience
+
+- Docker Compose local stack with API, frontend, and Qdrant.
+- GitHub Actions CI for backend quality/tests and container build validation.
+- Backend tests with pytest and Ruff.
+- Frontend tests with Vitest, React Testing Library, ESLint, TypeScript, and Vite build validation.
+- Vercel dependency and bundle audit script for the serverless Python function.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    browser["Browser<br/>React + TypeScript"] --> api["Same-origin FastAPI<br/>/api/v1"]
+    api --> ingest["Ingestion<br/>parse, normalize, chunk"]
+    ingest --> embed["Dense embeddings<br/>Gemini in Production"]
+    ingest --> sparse["Sparse lexical vectors"]
+    embed --> qdrant["Qdrant Cloud<br/>named dense + sparse vectors"]
+    sparse --> qdrant
+    api --> retrieval["Dense + sparse retrieval"]
+    qdrant --> retrieval
+    retrieval --> rrf["Weighted RRF<br/>dense 1.5, sparse 1.0, k=60"]
+    rrf --> context["Bounded context assembly"]
+    context --> generation["Grounded generation"]
+    generation --> citations["Citation validation"]
+    citations --> browser
 ```
 
-Sparse search:
+The same backend supports different dense embedding providers:
 
-```json
-{
-  "query": "remote policy",
-  "document_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-  "content_types": ["text/markdown"]
-}
-```
+| Environment | Dense provider | Model | Dimension |
+| --- | --- | --- | --- |
+| Local/Docker | Sentence Transformers | `sentence-transformers/all-MiniLM-L6-v2` | 384 |
+| Vercel Production | Gemini | `gemini-embedding-001` | 768 |
 
-Hybrid search:
+Qdrant collections must match the configured embedding provider. A collection created for 384-dimensional local vectors is not compatible with the 768-dimensional Production Gemini configuration, and vice versa.
 
-```json
-{
-  "query": "travel reimbursement",
-  "document_ids": [
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-  ],
-  "content_types": ["application/pdf"]
-}
-```
+## Retrieval Design
 
-Set `include_score_diagnostics` to `true` on dense, sparse, or hybrid search
-requests to include safe score diagnostics on each result. The default is
-`false`, which preserves the existing response shape. Dense diagnostics include
-the dense raw score and 1-based dense rank. Sparse diagnostics include the
-sparse raw score and 1-based sparse rank; sparse scoring comes from the
-deterministic hashed lexical sparse provider, not BM25.
+Dense retrieval embeds the query and searches the named dense vector in Qdrant. Sparse retrieval encodes the query into a deterministic lexical sparse vector and searches the named sparse vector. Hybrid retrieval runs both branches, then fuses the branch rankings in application code.
 
-Hybrid diagnostics include dense and sparse branch raw scores, branch ranks,
-active branch weights, weighted-RRF contributions, fused score, and fused rank.
-The contribution formula is `branch_weight / (rrf_k + branch_rank)`, and the
-fused score is the sum of branch contributions. Dense and sparse raw scores are
-not directly comparable; weighted RRF ranks branch result order rather than
-normalizing raw scores. Fused score is not a probability or confidence value.
-Higher fused score means stronger combined ranking evidence, and absence from
-one branch does not exclude a result.
+The current fusion defaults are:
 
-```json
-{
-  "query": "remote work policy",
-  "include_score_diagnostics": true
-}
-```
+- Dense weight: `1.5`
+- Sparse weight: `1.0`
+- RRF constant `k`: `60`
 
-```json
-{
-  "score": 0.0407,
-  "score_diagnostics": {
-    "dense": {
-      "raw_score": 0.82,
-      "rank": 2,
-      "weight": 1.5,
-      "rrf_contribution": 0.0242
-    },
-    "sparse": {
-      "raw_score": 0.54,
-      "rank": 1,
-      "weight": 1.0,
-      "rrf_contribution": 0.0164
-    },
-    "fused_score": 0.0407,
-    "fused_rank": 1
-  }
-}
-```
+The fused score is a ranking signal, not a probability or confidence score. Diagnostics expose how dense and sparse branches contributed to the final rank while avoiding vectors, raw provider payloads, prompts, and secrets.
 
-Diagnostics exclude embeddings, dense vectors, sparse vectors, raw Qdrant
-payloads, prompts, and other sensitive internals. Grounded-answer responses do
-not expose score diagnostics.
+## Grounding and Citation Safety
 
-Context assembly selects complete chunks under a fixed character budget. Chunk
-text is never cut, metadata headers and separators count toward the budget, and
-source numbers are assigned before generation so answers can cite stable source
-numbers. The LLM connection is intentionally a later stage; this layer only
-prepares bounded structured context.
+The grounded-answer pipeline is deliberately staged:
 
-## Grounded Prompt Construction
+1. Retrieve candidate chunks with hybrid search.
+2. Assemble a bounded context package with stable source numbers.
+3. Build prompts that require answers to use supplied evidence.
+4. Generate with the configured provider.
+5. Validate emitted `[Source N]` markers against available sources.
+6. Return insufficient context instead of fabricating citations when evidence is inadequate.
 
-The generation path is staged as retrieval, context assembly, prompt
-construction, and future generation. Prompt construction does not call an LLM;
-it renders deterministic system and user prompts from the user question and the
-assembled context.
+Broad questions, weakly supported questions, or questions outside the indexed documents may intentionally return an insufficient-context response. The project reduces unsupported answers through retrieval scoping, citation validation, and conservative refusal behavior; it does not claim to eliminate hallucinations.
 
-Retrieved document text is treated as untrusted evidence, not executable
-instructions. Source markers are assigned before generation, insufficient
-context is encoded explicitly when no sources are available, and general
-knowledge is disabled by default.
+## Technology Stack
 
-## Provider-Neutral Generation
+| Layer | Technologies |
+| --- | --- |
+| Frontend | React 18, TypeScript 5.7, Vite 6, Tailwind CSS, React Router, TanStack Query, Lucide React |
+| Backend API | Python 3.11-3.12, FastAPI, Pydantic Settings, Uvicorn |
+| Retrieval | Qdrant, Gemini embeddings, Sentence Transformers, deterministic hashed lexical sparse vectors |
+| Document parsing | `pypdf`, `python-docx`, built-in text/Markdown loading |
+| Generation | Deterministic acceptance provider, OpenAI-compatible provider abstraction |
+| Testing and quality | pytest, Ruff, Vitest, React Testing Library, ESLint, TypeScript |
+| Infrastructure | Docker, Docker Compose, GitHub Actions, Vercel, Qdrant Cloud |
 
-The full answer path is retrieval, context assembly, prompt construction,
-provider-neutral generation, and grounded answer result. The generation provider
-interface is isolated from retrieval, Qdrant, FastAPI, and context assembly so a
-real provider can be added later without changing the earlier stages.
-
-When no context sources are assembled, the answer service skips model invocation
-and returns a deterministic insufficient-context answer. Character counts are
-used until provider token accounting exists. Citation sources are returned
-structurally with the answer, but citation parsing and correctness checking are
-future work. No external generation provider is connected yet.
-
-## Citation Marker Validation
-
-Grounded answer results distinguish structured citations from emitted citation
-markers. Structured citations list the available evidence sources supplied to
-the model, while `citation_markers` records the `[Source N]` references that the
-model actually emitted in the answer text.
-
-Generated answers reject unknown or malformed source markers before being
-returned. This validation checks marker syntax and source availability only; it
-does not yet prove that a cited sentence is factually entailed by the cited
-source. Factual citation verification remains a later stage.
-
-## Grounded Answer API
-
-`POST /api/v1/answers/grounded` accepts `question`, `limit`,
-`candidate_limit`, optional `document_id`, `document_ids`, and `content_types`,
-then returns a grounded answer with structured `citations`, emitted
-`citation_markers`, context metadata, and model metadata. If retrieval finds no
-evidence, the service returns the deterministic insufficient-context answer
-without invoking OpenAI.
-
-```json
-{
-  "question": "What is the remote work policy?",
-  "document_ids": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
-  "content_types": ["text/plain"]
-}
-```
-
-Only grounded-answer generation is rate limited. By default, each client
-address may make 10 requests per 60 seconds. Responses include
-`X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`; denied
-requests return `429` with `Retry-After`. The limiter is in-memory, resets on
-process restart, and is suitable for local or single-process deployment only.
-Redis or distributed limiting is future work.
-
-`OPENAI_API_KEY` is required only when generation is actually invoked. Provider
-and network errors are returned with sanitized API details; prompts, retrieved
-context, keys, raw provider responses, and raw provider exception messages are
-not exposed. OpenAI SDK timeout is application-configurable, SDK retries default
-to `2`, and setting retries to `0` disables SDK retries. Authentication failures
-and local validation failures are not manually retried, and there is no custom
-retry loop beyond the official SDK behavior. Streaming is not implemented.
-
-Run `python backend/scripts/grounded_answer_smoke_test.py` for a local
-grounded-answer smoke test. Docker/Qdrant must already be running. The script
-uses the real local ingestion, embedding, Qdrant retrieval, context assembly,
-prompting, answer route, and citation validation pipeline, but replaces OpenAI
-with a deterministic in-process stub, so no API key or generation credits are
-used. Success validates citation markers and source metadata.
-
-## Docker-Backed Acceptance Test
-
-`python scripts/acceptance/run_acceptance.py` runs a Docker-backed acceptance
-workflow against the public HTTP API and real Qdrant service. It verifies
-liveness, TXT/Markdown/PDF/DOCX ingestion, document listing/detail,
-dense/sparse/hybrid retrieval, score diagnostics, metadata filters, document
-replacement, deletion, grounded answers, and cleanup.
-
-Prerequisites: Docker Compose services must be running and reachable at
-`ACCEPTANCE_API_BASE_URL` or `http://127.0.0.1:8000`. OpenAI is not required
-when the API is started with `GENERATION_PROVIDER=deterministic`; that provider
-is acceptance-only and never enabled by default.
-
-Recommended isolated startup:
-
-```bash
-QDRANT_HYBRID_COLLECTION_NAME=internal_document_chunks_acceptance \
-GENERATION_PROVIDER=deterministic \
-READINESS_ENABLED=false \
-docker compose up -d --build
-python scripts/acceptance/run_acceptance.py
-```
-
-Set `ACCEPTANCE_API_KEY` when API-key authentication is enabled. The runner uses
-small deterministic fixtures, creates PDF/DOCX fixtures locally at runtime, and
-deletes the documents it creates in best-effort cleanup unless `--keep-data` is
-passed. Unit tests do not start Docker; the acceptance workflow is an explicit
-end-to-end check. Successful output ends with:
+## Repository Structure
 
 ```text
-Acceptance workflow passed: 14/14 checks
+backend/                 FastAPI application, retrieval, ingestion, generation, tests
+frontend/                React/Vite application and frontend tests
+api/                     Vercel FastAPI entrypoint and SPA serving hook
+scripts/                 Acceptance, smoke, Vercel static, and bundle-audit scripts
+deployment/vercel/       Vercel deployment notes for the accepted architecture
+datasets/                Sample documents and retrieval evaluation fixtures
+.github/workflows/       GitHub Actions CI workflow
+Dockerfile               Local/container backend image
+docker-compose.yml       Local API, frontend, and Qdrant stack
+vercel.json              Full-stack Vercel routing/build configuration
+pyproject.toml           Backend package, optional extras, pytest, and Ruff config
 ```
 
-## Frontend Foundation
+## API Overview
 
-`frontend/` contains the React foundation for Hybrid Search Studio, a
-recruiter-facing developer tool for demonstrating ingestion, retrieval,
-diagnostics, grounded answers, and health status. The stack is React,
-TypeScript, Vite, Tailwind CSS, React Router, TanStack Query, Lucide React,
-Vitest, React Testing Library, ESLint, and Prettier.
+All API routes are served under `/api/v1`. When API authentication is enabled, protected routes require:
 
-Setup:
+```http
+X-API-Key: <your-session-api-key>
+```
+
+| Method | Route | Purpose | Auth |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/health` | Basic service metadata | Public |
+| `GET` | `/api/v1/health/live` | Fast process liveness check | Public |
+| `GET` | `/api/v1/health/ready` | Dependency/config readiness check | Public |
+| `GET` | `/api/v1/documents` | List indexed documents | Required when search protection is enabled |
+| `GET` | `/api/v1/documents/{document_id}` | Fetch indexed document metadata | Required when search protection is enabled |
+| `POST` | `/api/v1/documents/ingest` | Upload and index a document | Required |
+| `DELETE` | `/api/v1/documents/{document_id}` | Delete all chunks for a document | Required |
+| `POST` | `/api/v1/search/dense` | Dense semantic retrieval | Required when search protection is enabled |
+| `POST` | `/api/v1/search/sparse` | Sparse lexical retrieval | Required when search protection is enabled |
+| `POST` | `/api/v1/search/hybrid` | Weighted hybrid retrieval | Required when search protection is enabled |
+| `POST` | `/api/v1/answers/grounded` | Generate a cited grounded answer | Required |
+
+Search and answer request bodies support `document_id`, `document_ids`, `content_types`, `limit`, and, for hybrid/answers, `candidate_limit`. Search routes can also request `include_score_diagnostics`.
+
+## Local Development
+
+Python is pinned to `>=3.11,<3.13` in `pyproject.toml`. The frontend does not declare a Node engine; use a current Node.js LTS release with npm.
+
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/ayushxt25/Hybrid-Search-Rag.git
+cd Hybrid-Search-Rag
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+
+Copy-Item .env.example .env
+docker compose up -d qdrant
+
+python -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
+```
+
+In a second terminal:
+
+```powershell
+cd frontend
+npm ci
+Copy-Item .env.example .env
+npm run dev
+```
+
+### macOS/Linux Shell
+
+```bash
+git clone https://github.com/ayushxt25/Hybrid-Search-Rag.git
+cd Hybrid-Search-Rag
+
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+
+cp .env.example .env
+docker compose up -d qdrant
+
+python -m uvicorn app.main:app --app-dir backend --reload --host 127.0.0.1 --port 8000
+```
+
+In a second terminal:
 
 ```bash
 cd frontend
-npm install
+npm ci
 cp .env.example .env
 npm run dev
 ```
 
-Configure the backend URL with:
-
-```text
-VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1
-```
-
-Leave `VITE_API_BASE_URL` unset for production-style reverse-proxy builds; the
-frontend then uses the relative `/api/v1` path and does not embed localhost or
-private network addresses. `VITE_*` values are public build-time values, so do
-not place API keys, passwords, provider secrets, or other credentials in them.
-
-Production build:
-
-```bash
-npm run build
-```
-
-Implemented routes are `/overview`, `/documents`, `/retrieval`, `/answers`,
-`/system`, and a not-found route. The Documents route supports listing indexed
-documents, uploading TXT, Markdown, PDF, and DOCX files, inspecting safe
-metadata, replacing an existing document, and deleting indexed chunks. The
-Retrieval Playground runs dense, sparse, and weighted-RRF hybrid searches,
-supports document and content-type metadata filters, and can show optional score
-diagnostics. Diagnostics expose branch ranks, raw branch scores, weighted-RRF
-contributions, fused rank, and fused score; fused score is not a probability or
-confidence value, and dense/sparse raw scores are not directly comparable. The
-UI labels request timing as client-observed duration and does not display
-vectors, sparse indices, Qdrant point IDs, raw payloads, or secrets. The
-Grounded Answers route asks questions over indexed documents, supports
-document/content-type scoping, renders backend citation markers without
-renumbering them, and shows source evidence cards from safe returned citation
-metadata. Insufficient-context responses are shown as a deliberate “not enough
-evidence” state rather than a crash or fabricated answer. The UI states that
-answers are generated by the backend provider configured for the environment;
-when the backend returns a provider/model label, it is shown as returned and is
-not inferred. Grounded-answer summaries use citation/source counts and
-client-observed duration, not confidence percentages. Deployment is the next
-major frontend stage.
-
-The document UI depends on the backend API at `VITE_API_BASE_URL` in local Vite
-development, or `/api/v1` when built behind the reverse proxy. Uploads use
-multipart field `file`; replacements use the same upload endpoint with
-`replace_document_id`. The displayed upload limit is the backend default
-`MAX_DOCUMENT_UPLOAD_BYTES=10485760` (10 MB). Replacement follows backend
-semantics: the new file is parsed first and old indexed chunks are removed before
-upsert, but the operation is not a database transaction. Deletion removes indexed
-chunks for the selected document. If API-key auth is enabled, the page can keep a
-key in memory for the current browser page session only; it is never stored in
-localStorage, sessionStorage, or cookies.
-
-
-## Request Observability
-
-HTTP responses include `X-Request-ID`. A valid incoming request ID is preserved;
-missing, blank, unsafe, or overly long IDs are replaced with a generated UUID4.
-The API emits JSON request lifecycle events named `api_request_started`,
-`api_request_completed`, and `api_error`. Request lifecycle logs contain only
-`request_id`, `method`, `path`, `status_code`, `duration_ms`, and `timestamp`.
-The grounded-answer pipeline records internal retrieval, context assembly,
-prompt construction, generation, and total timings. Logs intentionally exclude
-questions, document/context text, answers, prompts, identifiers, secrets, and raw
-provider responses. Observability logs can be disabled with
-`OBSERVABILITY_ENABLED=false`; timings are internal and are not exposed in API
-responses.
-
-## Health Checks
-
-The legacy `GET /api/v1/health` endpoint still returns service metadata.
-`GET /api/v1/health/live` is a fast process liveness check and returns
-`{"status":"alive"}` without creating external clients. `GET
-/api/v1/health/ready` checks Qdrant connectivity and hybrid collection
-compatibility, OpenAI generation configuration, and embedding dimension
-configuration. Readiness does not call OpenAI, load embedding models, index
-documents, or run searches. A `503` response means at least one required
-component is not ready. Set `READINESS_ENABLED=false` to return ready with a
-`not_configured` readiness component. Container liveness probes should use
-`/api/v1/health/live`; readiness probes should use `/api/v1/health/ready`.
-
-## Document Lifecycle
-
-Indexed documents can be managed without a separate database. `GET
-/api/v1/documents` lists document metadata, `GET /api/v1/documents/{document_id}`
-returns detail metadata, and `DELETE /api/v1/documents/{document_id}`
-permanently removes all matching chunks from the configured Qdrant collection.
-Management responses do not include chunk text or embedding vectors.
-
-Ingestion remains deterministic: identical content produces the same document ID
-and upserts idempotently. To replace a logical document with changed content,
-submit the upload with multipart field `replace_document_id`; the backend parses
-and embeds the new file first, then deletes stale chunks immediately before
-upserting the replacement. Qdrant is not transactional, so a process or Qdrant
-failure between delete and upsert can still require re-ingestion. Delete and
-replace operations use process-local per-document locks only; multiple API
-processes need external coordination. Create a backup before destructive
-production operations.
-
-## API Security
-
-Trusted host validation defaults to `localhost`, `127.0.0.1`, and `testserver`;
-production deployments should set `TRUSTED_HOSTS` to their public hostnames.
-CORS is disabled by default and only configured origins are allowed when enabled.
-Responses include conservative security headers for content sniffing, framing,
-referrer, permissions, resource policy, and CSP protections. HSTS is
-intentionally excluded while local HTTP development is supported.
-
-JSON requests are limited to 256 KiB by default and document uploads to 10 MiB.
-Malformed `Content-Length` returns `400`; oversized JSON or document uploads
-return `413` with sanitized details.
-
-API-key authentication is disabled by default. When enabled, document ingestion
-and grounded-answer generation require the configured header, `X-API-Key` by
-default; search routes are also protected unless `API_AUTH_PROTECT_SEARCH=false`.
-Health endpoints remain public. The application stores only a SHA-256 digest,
-not a plaintext key. Generate a digest locally with
-`python -c "import hashlib,getpass; print(hashlib.sha256(getpass.getpass('API key: ').encode()).hexdigest())"`.
-Missing or invalid credentials return `401` with `WWW-Authenticate: ApiKey`.
-This is intended for service-to-service or local deployment; user accounts and
-OAuth/JWT remain future work.
-
-## Security Architecture
-
-Authentication is optional API-key authentication for trusted service or local
-deployments. When enabled, the backend accepts the configured header
-(`X-API-Key` by default), hashes the provided value with SHA-256, and compares it
-with the configured digest using constant-time comparison. Plaintext API keys
-are never stored by the backend; frontend API keys are held only in page memory.
-Health endpoints stay public, and search protection can be disabled separately
-with `API_AUTH_PROTECT_SEARCH=false`.
-
-Request tracing is request-ID based. The backend preserves a safe incoming
-`X-Request-ID` or generates a UUID4, attaches it to every response, and uses it
-as the only correlation value in production logs. Unexpected errors return a
-sanitized `500` response with the request ID, without stack traces, internal
-paths, provider details, or raw exception messages.
-
-Logging is structured JSON and uses an allowlist of safe fields. Request logs
-exclude Authorization headers, cookies, API keys, IP addresses, filenames,
-uploaded content, user questions, answers, prompts, embeddings, vectors, Qdrant
-payloads, and raw exceptions. Operational route logs use aggregate counts,
-status values, and timing metadata only.
-
-Upload validation is extension and size based before indexing. Supported
-extensions are `.txt`, `.md`, `.pdf`, and `.docx`; empty, oversized, encrypted,
-corrupt, unsupported, or non-extractable documents receive sanitized errors.
-Only the basename of the supplied upload name is used for temporary storage, and
-upload bytes are written into an isolated temporary directory.
-
-Container hardening uses multi-stage images, no secret values in Compose, a
-non-root backend runtime user, an unprivileged nginx frontend image, explicit
-health checks, named Qdrant storage, trusted-host validation, disabled-by-default
-CORS, conservative response security headers, and Docker secrets or environment
-files for runtime secrets.
-
-## Dependency Lifecycle
-
-Heavy dependencies remain lazy and are not created during application startup.
-Owned external clients, such as internally constructed Qdrant and OpenAI
-clients, are closed during FastAPI shutdown; injected clients remain
-caller-owned. Cached dependencies are cleared after shutdown, and repeated
-shutdown calls are safe.
-
-## Docker Compose
-
-Create `.env` from `.env.example`, set external secrets such as `OPENAI_API_KEY`
-there, then run:
-
-```bash
-docker compose up --build
-```
-
-Useful commands:
-
-```bash
-docker compose ps
-docker compose logs -f api
-docker compose logs -f qdrant
-docker compose down
-docker compose build --no-cache api
-```
-
-Use `docker compose down -v` only when intentionally deleting persisted Qdrant
-data and the Hugging Face model cache. The API is available at
-`http://localhost:8000`; useful endpoints are `/api/v1/health/live`,
-`/api/v1/health/ready`, and `/docs`.
-
-Local Python development uses `QDRANT_URL=http://127.0.0.1:6333`; Compose sets
-`QDRANT_URL=http://qdrant:6333` for the API container. Qdrant data is persisted
-in a named volume. Sentence-transformers models are loaded lazily; the first
-embedding request may download the model into the `huggingface_cache` volume and
-take longer. The API image runs as a non-root user, does not bind-mount source
-code, and uses one Uvicorn worker so in-memory rate limits remain process-local.
-Docker health uses liveness; readiness may remain `503` until the Qdrant hybrid
-collection exists and is compatible.
-
-## Deployment Preparation
-
-This repository is prepared for deployment configuration, but this section does
-not imply any service has been deployed. Use `.env.example` as a template and
-provide real values through private environment variables, Docker secrets, or a
-deployment secret manager.
-
-For full-stack Vercel deployment with Gemini remote embeddings, see
-`deployment/vercel/DEPLOYMENT.md`. Google Cloud Run and Hugging Face notes remain
-optional deployment references under `deployment/`.
-
-Required backend environment variables for public deployment:
-
-- `ENVIRONMENT=production`
-- `API_AUTH_ENABLED=true`
-- `API_AUTH_KEY_SHA256=<sha256 digest of the API key>`
-- `TRUSTED_HOSTS=["api.example.com","studio.example.com"]`
-- `CORS_ENABLED=true` when the frontend and API are on different origins
-- `CORS_ALLOWED_ORIGINS=["https://studio.example.com"]`
-- `QDRANT_URL=<qdrant cloud or private service URL>`
-- `QDRANT_HYBRID_COLLECTION_NAME=<production collection name>`
-- `GENERATION_PROVIDER=openai`
-- `OPENAI_API_KEY=<secret-managed provider key>`
-
-Local development can use `API_AUTH_ENABLED=false`, local Qdrant at
-`http://localhost:6333`, and Vite with
-`VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1`. Production should enable API
-authentication, set explicit trusted hosts and origins, use a production Qdrant
-instance, and keep provider credentials out of source control.
-
-Frontend build configuration is intentionally small. If the frontend is served
-behind the included reverse proxy, leave `FRONTEND_API_BASE_URL` and
-`VITE_API_BASE_URL` empty so the built app calls relative `/api/v1`. If the
-frontend and API are hosted on separate public origins, set the build-time API
-base URL to the public HTTPS API prefix, such as
-`https://api.example.com/api/v1`. Do not put secrets in `VITE_*` variables
-because they are embedded into the browser bundle.
-
-Backend configuration remains environment-driven. CORS, trusted hosts, API-key
-authentication, upload limits, request observability, Qdrant connection details,
-and provider settings are parsed from environment variables. Security headers,
-API-key digest verification, upload validation, and safe error handling should
-remain enabled for production.
-
-Qdrant is required before readiness can pass. Use a production Qdrant service or
-a managed private deployment, configure `QDRANT_URL`, and use a dedicated
-production hybrid collection. Back up production vector data before destructive
-document replacement or deletion workflows.
-
-API authentication is required for public deployment. Store only the SHA-256
-digest in `API_AUTH_KEY_SHA256`; distribute the plaintext API key through a
-private operational channel or secret manager, never through `.env.example`,
-frontend variables, logs, or documentation.
-
-Before deployment:
-
-- [ ] configure environment variables
-- [ ] configure frontend API URL
-- [ ] configure backend allowed origins
-- [ ] configure Qdrant connection
-- [ ] verify health endpoints
-- [ ] run tests
-- [ ] build containers
-
-After deployment:
-
-- [ ] verify frontend routes
-- [ ] verify API health
-- [ ] verify upload
-- [ ] verify retrieval
-- [ ] verify grounded answers
-
-## Continuous Integration
-
-GitHub Actions runs on pushes to `main`, pull requests targeting `main`, and
-manual dispatch. The CI workflow installs full backend test dependencies with
-`python -m pip install -e ".[test]"`, checks formatting with
-`python -m ruff format --check backend`, lints with `python -m ruff check backend`,
-and runs the full test suite with `python -m pytest` on Python 3.11.
-
-The container job validates `docker compose config` and builds the API image with
-`docker build --tag hybrid-search-rag-ci:local .`. It does not push images, use
-repository secrets, or require an OpenAI API key. Runtime Compose smoke testing is
-kept as a local check to avoid CI depending on external model or service state.
-
-## Production-Style Local Stack
-
-Local Vite development remains unchanged:
-
-```bash
-# terminal 1
-cp .env.example .env
-docker compose up -d qdrant api
-
-# terminal 2
-cd frontend
-cp .env.example .env
-npm install
-npm run dev
-```
-
-`frontend/.env` uses `VITE_API_BASE_URL=http://127.0.0.1:8000/api/v1` for Vite
-at `http://localhost:5173`. Leave it unset for reverse-proxy builds so the app
-uses `/api/v1`. Keep secrets out of frontend environment variables; the browser
-only needs the public API base URL, and any API key entered in the UI is held in
-memory for the current page session only.
-
-The production-style local Compose stack serves the built React app with Nginx
-and proxies `/api/` to the Docker API service, so browser calls are same-origin
-from `http://localhost:3000` and do not require CORS:
+For a production-style local stack with the React build served by Nginx and `/api/` proxied to FastAPI:
 
 ```bash
 docker compose up -d --build
-```
-
-Open `http://localhost:3000`. Direct navigation and refresh work for `/overview`,
-`/documents`, `/retrieval`, `/answers`, and `/system`. The frontend container is
-a static Nginx image; it does not run the Vite development server. Qdrant data is
-kept in the persistent `qdrant_storage` volume, and the Hugging Face cache remains
-in `huggingface_cache`.
-
-Useful local `.env` settings:
-
-```text
-GENERATION_PROVIDER=deterministic
-QDRANT_HYBRID_COLLECTION_NAME=internal_document_chunks_hybrid
-API_AUTH_ENABLED=false
-```
-
-Use a dedicated `QDRANT_HYBRID_COLLECTION_NAME` for acceptance or demo data when
-isolation is needed. Do not place provider keys or API secrets in frontend env
-files. If backend API-key auth is enabled, configure it only through backend
-`.env`; the frontend can send a session-only key entered by the user.
-
-The System Health page checks liveness automatically through the existing safe
-liveness query. Readiness is manual: click **Check readiness** to inspect safe
-component statuses without exposing stack traces, filesystem paths, provider
-credentials, vectors, or secrets.
-
-Run the concise full-stack smoke test after the stack is up:
-
-```bash
 python scripts/fullstack_smoke.py
 ```
 
-Expected success ends with:
+The local Docker frontend is available at `http://localhost:3000`; the API is available at `http://localhost:8000`.
 
-```text
-Full-stack smoke passed: 5/5 checks
-```
+## Environment Configuration
 
-Shutdown:
+Use `.env.example` as the local template and a deployment secret manager for shared environments. Do not commit `.env` files.
+
+### Required Integration Secrets
+
+- `QDRANT_URL`
+- `QDRANT_API_KEY`
+- `GEMINI_API_KEY` when `DENSE_EMBEDDING_PROVIDER=gemini`
+- `API_AUTH_KEY_SHA256` when `API_AUTH_ENABLED=true`
+- `OPENAI_API_KEY` when `GENERATION_PROVIDER=openai`
+
+`API_AUTH_KEY_SHA256` stores a SHA-256 digest. Clients send the matching plaintext key only in the `X-API-Key` request header.
+
+### Application Configuration
+
+- Runtime and logging: `ENVIRONMENT`, `LOG_LEVEL`, `OBSERVABILITY_ENABLED`
+- API/auth: `API_V1_PREFIX`, `API_AUTH_ENABLED`, `API_AUTH_HEADER_NAME`, `API_AUTH_PROTECT_SEARCH`
+- Security boundaries: `TRUSTED_HOSTS`, `CORS_ENABLED`, `CORS_ALLOWED_ORIGINS`, `CORS_ALLOW_CREDENTIALS`
+- Upload limits: `MAX_JSON_REQUEST_BYTES`, `MAX_DOCUMENT_UPLOAD_BYTES`, `VITE_MAX_DOCUMENT_UPLOAD_BYTES`
+- Qdrant: `QDRANT_HYBRID_COLLECTION_NAME`, `QDRANT_HEALTH_TIMEOUT_SECONDS`
+- Embeddings: `DENSE_EMBEDDING_PROVIDER`, `DENSE_EMBEDDING_DIMENSIONS`, `GEMINI_EMBEDDING_MODEL`, `GEMINI_EMBEDDING_DIMENSION`, `GEMINI_EMBEDDING_TIMEOUT_SECONDS`
+- Retrieval: `HYBRID_DENSE_WEIGHT`, `HYBRID_SPARSE_WEIGHT`, `HYBRID_RRF_K`
+- Grounded answers: `CONTEXT_MAX_CHARACTERS`, `CONTEXT_MAX_SOURCES`, `GENERATION_PROVIDER`, `GENERATION_REQUIRE_ANSWER_CITATIONS`
+
+Secrets must never use `VITE_` prefixes. Vite variables are public build-time values embedded into the browser bundle. The frontend never receives Qdrant, Gemini, OpenAI, or API-auth digest values.
+
+## Testing and Quality
+
+### Backend
 
 ```bash
-docker compose down
+python -m ruff format --check backend
+python -m ruff check backend
+python -m pytest
 ```
 
-Public deployment is the next stage; this stack is for local production-style
-verification only.
+Latest verified backend run in this workspace: `738 passed, 1 skipped`.
+
+### Frontend
+
+```bash
+cd frontend
+npm run lint
+npm run typecheck
+npm run test:run
+npm run build
+```
+
+Latest verified frontend test run in this workspace: `79 passed`.
+
+### Deployment Checks
+
+```bash
+python scripts/vercel_bundle_audit.py
+vercel build
+docker compose config
+docker build --tag hybrid-search-rag-ci:local .
+```
+
+## Continuous Integration
+
+GitHub Actions runs on pushes to `main`, pull requests targeting `main`, and manual dispatch. The `quality-and-tests` job installs the full backend test dependency set with `python -m pip install -e ".[test]"`, then runs:
+
+```bash
+python -m ruff format --check backend
+python -m ruff check backend
+python -m pytest
+```
+
+The `container-build` job validates Compose configuration and builds the backend image:
+
+```bash
+docker compose config
+docker build --tag hybrid-search-rag-ci:local .
+```
+
+The latest observed CI run for `main` completed with `quality-and-tests` and `container-build` passing.
+
+## Deployment
+
+Production is a single Vercel project:
+
+- React SPA built from `frontend/`.
+- FastAPI entrypoint at `api/index.py`.
+- Same-origin API calls to `/api/v1`.
+- Vercel rewrites route `/api/v1/:path*` to FastAPI and SPA routes to `index.html`.
+- Gemini remote embeddings keep the serverless function bundle below practical limits.
+- Qdrant Cloud stores dense and sparse vectors.
+- Production secrets are configured in Vercel, not committed to Git.
+
+The stable Production alias is:
+
+```text
+https://hybrid-search-studio-three.vercel.app
+```
+
+Production environment changes require a new deployment to take effect. Qdrant collection schema must match the configured embedding provider dimensions and named-vector layout.
+
+For the Vercel-specific deployment notes, see [deployment/vercel/DEPLOYMENT.md](deployment/vercel/DEPLOYMENT.md).
+
+## Security and Operational Design
+
+Production-oriented safeguards implemented in this project include:
+
+- SHA-256 API-key digest verification with constant-time comparison.
+- Frontend session key storage only in browser `sessionStorage`.
+- No server secrets or API-auth digest in frontend configuration.
+- Trusted-host validation and disabled-by-default CORS.
+- Same-origin Production deployment.
+- Upload-size enforcement in backend and frontend configuration.
+- Request IDs attached to API responses and structured logs.
+- Health endpoints split into liveness and readiness.
+- Allowlisted JSON log fields.
+- Third-party HTTP transport logs raised to `WARNING` to avoid URL leakage.
+- Sanitized error responses for provider, vector-store, validation, and upload failures.
+- Citation marker validation and insufficient-context behavior.
+
+These controls are scoped to this project. The app does not implement user accounts, OAuth, tenant isolation, or long-term audit storage.
+
+## Engineering Decisions and Trade-Offs
+
+- **Dense plus sparse retrieval:** Dense search handles semantic matches; sparse search preserves exact terminology and identifiers.
+- **Application-side weighted RRF:** Fusion stays transparent, testable, and independent of Qdrant server-side fusion behavior.
+- **Separate embedding providers:** Local Docker can use Sentence Transformers, while Vercel uses Gemini to avoid shipping heavy ML dependencies in a serverless bundle.
+- **Deterministic identifiers:** Document and chunk IDs are derived from normalized content, enabling idempotent ingestion and predictable cleanup.
+- **Conservative grounded answers:** The answer service validates citation markers and returns insufficient context when evidence is inadequate.
+- **Session-scoped frontend key:** The browser can authenticate demo workflows without embedding credentials in source, build output, or persistent local storage.
+
+## Current Limitations
+
+- The public demo requires authorized credentials for protected document and answer workflows.
+- The deterministic generation provider is intentionally conservative and best suited to acceptance/demo flows.
+- Serverless function constraints influence the Production embedding provider and dependency set.
+- Document parsing depends on extractable text; scanned image-only PDFs are not OCR processed.
+- Rate limiting and document replacement locks are process-local.
+- There is no multi-user account system or long-term chat history.
+
+## Roadmap
+
+- Add retrieval-quality evaluation reports with reproducible benchmark datasets.
+- Add reranking for final candidate ordering.
+- Support streaming grounded answers.
+- Improve PDF parsing with optional OCR for scanned documents.
+- Add per-user workspaces and document isolation.
+- Add automated Production smoke tests that avoid persistent test data.
+
+## Author
+
+Ayush Kumar Giri
+
+- GitHub: [ayushxt25](https://github.com/ayushxt25)
+- LinkedIn: [ayush-giri-04544a348](https://linkedin.com/in/ayush-giri-04544a348)
