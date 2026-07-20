@@ -16,6 +16,24 @@ from app.security.middleware import (
     SecurityHeadersMiddleware,
 )
 
+THIRD_PARTY_TRANSPORT_LOGGERS = (
+    "httpx",
+    "httpcore",
+    "httpcore.connection",
+    "httpcore.http11",
+    "httpcore.http2",
+    "httpcore.proxy",
+    "httpcore.socks",
+    "urllib3",
+    "urllib3.connectionpool",
+    "qdrant_client",
+)
+
+
+def configure_third_party_transport_logging() -> None:
+    for logger_name in THIRD_PARTY_TRANSPORT_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
 
 def configure_logging(log_level: str) -> None:
     level = getattr(logging, log_level)
@@ -28,6 +46,7 @@ def configure_logging(log_level: str) -> None:
         handler.setFormatter(formatter)
     logging.getLogger("app.grounded_answer").setLevel(level)
     logging.getLogger("app.observability").setLevel(level)
+    configure_third_party_transport_logging()
 
 
 @asynccontextmanager

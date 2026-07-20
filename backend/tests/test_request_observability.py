@@ -193,6 +193,61 @@ def test_configured_logging_outputs_json_without_secrets(caplog) -> None:
     assert "SECRET_AUTH" not in formatted
 
 
+def test_configured_logging_suppresses_third_party_request_urls(caplog) -> None:
+    configure_logging("INFO")
+
+    with caplog.at_level(logging.INFO):
+        logging.getLogger("httpx").info(
+            "HTTP Request: POST https://qdrant.example/collections/private/points"
+        )
+        logging.getLogger("httpcore.http11").info(
+            "send_request_headers.started request=<Request [b'POST']>"
+        )
+        logging.getLogger("urllib3.connectionpool").info(
+            "Starting new HTTPS connection (1): provider.example:443"
+        )
+        logging.getLogger("qdrant_client").info(
+            "request to https://qdrant.example/private"
+        )
+
+    assert not [
+        record
+        for record in caplog.records
+        if record.name
+        in {
+            "httpx",
+            "httpcore.http11",
+            "urllib3.connectionpool",
+            "qdrant_client",
+        }
+    ]
+    assert "qdrant.example" not in caplog.text
+    assert "provider.example" not in caplog.text
+
+
+def test_configured_logging_preserves_application_info_logs(caplog) -> None:
+    configure_logging("INFO")
+    app_logger = logging.getLogger("app.observability")
+
+    with caplog.at_level(logging.INFO):
+        app_logger.info(
+            "api_request_completed",
+            extra={
+                "event": "api_request_completed",
+                "request_id": "safe-request-id",
+                "path": "/api/v1/health/live",
+                "status_code": 200,
+            },
+        )
+
+    assert any(
+        record.name == "app.observability"
+        and record.event == "api_request_completed"
+        and record.request_id == "safe-request-id"
+        for record in caplog.records
+    )
+
+
 def test_unhandled_errors_return_safe_body_and_log_api_error(caplog) -> None:
     service = Mock()
     service.answer.side_effect = Exception("SECRET_STACK /tmp/internal/provider")
