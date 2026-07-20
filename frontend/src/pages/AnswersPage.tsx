@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 
 import { PageHeader } from "../components/layout/PageHeader";
-import { ApiAccessPanel } from "../features/documents/components/ApiAccessPanel";
 import { useDocumentList } from "../features/documents/hooks";
 import { useHealth } from "../features/health/useHealth";
 import { AnswerPanel } from "../features/answers/components/AnswerPanel";
@@ -21,7 +20,7 @@ function answerErrorMessage(error: unknown) {
   if (error.status === 0 && error.detail === "timeout") return "Request timed out.";
   if (error.status === 0) return "Network request failed.";
   if (error.status === 401 || error.status === 403) {
-    return "API access key may be required.";
+    return "API credentials were not accepted. Go to System Health -> Session API key, update the key, and retry.";
   }
   if (error.status === 422) return "Check the question, limits, and filters.";
   if (error.status === 429) {
@@ -140,12 +139,6 @@ export function AnswersPage() {
             selectedContentTypes={filteredContentTypes}
             onDocumentChange={(ids) => setDocumentIds(unique(ids))}
             onContentTypeChange={(types) => setContentTypes(unique(types))}
-          />
-          <ApiAccessPanel
-            onChange={() => {
-              health.refetch();
-              documentsQuery.refetch();
-            }}
           />
         </div>
         <AnswerPanel

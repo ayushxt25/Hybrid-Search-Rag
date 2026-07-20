@@ -38,19 +38,78 @@ export type ApiResult<T> = {
 };
 
 const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
-let sessionApiKey: string | undefined;
+export const SESSION_API_KEY_STORAGE_KEY = "hybrid-search-studio.session-api-key";
+
+let sessionApiKeyFallback: string | undefined;
+const sessionApiKeyListeners = new Set<() => void>();
+
+function safeSessionStorage(): Storage | undefined {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function readStoredSessionApiKey(): string | undefined {
+  const storage = safeSessionStorage();
+  if (!storage) return sessionApiKeyFallback;
+  try {
+    const normalized = storage.getItem(SESSION_API_KEY_STORAGE_KEY)?.trim();
+    return normalized || undefined;
+  } catch {
+    return sessionApiKeyFallback;
+  }
+}
+
+function notifySessionApiKeyListeners() {
+  for (const listener of sessionApiKeyListeners) {
+    listener();
+  }
+}
 
 export function setSessionApiKey(value: string | undefined) {
   const normalized = value?.trim();
-  sessionApiKey = normalized || undefined;
+  sessionApiKeyFallback = normalized || undefined;
+  const storage = safeSessionStorage();
+  if (storage) {
+    try {
+      if (normalized) {
+        storage.setItem(SESSION_API_KEY_STORAGE_KEY, normalized);
+      } else {
+        storage.removeItem(SESSION_API_KEY_STORAGE_KEY);
+      }
+    } catch {
+      // Keep the in-memory fallback so auth still works for this page lifetime.
+    }
+  }
+  notifySessionApiKeyListeners();
 }
 
 export function clearSessionApiKey() {
-  sessionApiKey = undefined;
+  sessionApiKeyFallback = undefined;
+  const storage = safeSessionStorage();
+  if (storage) {
+    try {
+      storage.removeItem(SESSION_API_KEY_STORAGE_KEY);
+    } catch {
+      // Storage can be unavailable in private or restricted browser contexts.
+    }
+  }
+  notifySessionApiKeyListeners();
 }
 
 export function hasSessionApiKey() {
-  return Boolean(sessionApiKey);
+  return Boolean(readStoredSessionApiKey());
+}
+
+export function subscribeSessionApiKey(listener: () => void) {
+  sessionApiKeyListeners.add(listener);
+  return () => sessionApiKeyListeners.delete(listener);
+}
+
+export function getSessionApiKeySnapshot() {
+  return hasSessionApiKey();
 }
 
 async function readBody(response: Response): Promise<unknown> {
@@ -77,7 +136,7 @@ export class ApiClient {
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.timeoutMs = options.timeoutMs ?? 10000;
-    this.getApiKey = options.getApiKey;
+    this.getApiKey = options.getApiKey ?? readStoredSessionApiKey;
     this.fetcher = options.fetcher;
   }
 
@@ -139,4 +198,4 @@ export class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient({ getApiKey: () => sessionApiKey });
+export const apiClient = new ApiClient({ getApiKey: readStoredSessionApiKey });

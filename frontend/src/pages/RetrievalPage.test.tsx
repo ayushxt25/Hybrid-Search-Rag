@@ -210,6 +210,22 @@ describe("RetrievalPage", () => {
     expect(
       await screen.findByText("Check the query, limits, and filters."),
     ).toBeInTheDocument();
+
+    fetcher.mockImplementation((url: string) => {
+      if (url.endsWith("/api/v1/health/live")) return response({ status: "alive" });
+      if (url.endsWith("/api/v1/documents")) {
+        return response({ documents, next_cursor: null });
+      }
+      return response({ detail: "Valid API credentials are required." }, 401);
+    });
+    await user.clear(screen.getByLabelText("Query"));
+    await user.type(screen.getByLabelText("Query"), "needs key");
+    await user.click(screen.getByRole("button", { name: /Search/i }));
+    expect(
+      await screen.findByText(
+        /Go to System Health -> Session API key, update the key, and retry/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("disables search when backend is unavailable", async () => {

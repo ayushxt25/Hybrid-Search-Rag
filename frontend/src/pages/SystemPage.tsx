@@ -9,9 +9,12 @@ import { CodeBlock } from "../components/ui/CodeBlock";
 import { MetadataList } from "../components/ui/MetadataList";
 import { Section } from "../components/ui/Section";
 import {
+  SessionApiKeyPanel,
+} from "../features/auth/SessionApiKeyPanel";
+import { useSessionApiKeyStatus } from "../features/auth/sessionApiKeyHooks";
+import {
   getApiBaseUrl,
   healthPaths,
-  isSessionApiKeySet,
   type ComponentHealth,
 } from "../features/health/api";
 import { HealthStatusBadge } from "../features/health/HealthStatus";
@@ -57,6 +60,7 @@ export function SystemPage() {
   const liveState = healthUiState(liveness);
   const readyState = readinessState(readiness);
   const apiBaseUrl = getApiBaseUrl();
+  const sessionApiKeySet = useSessionApiKeyStatus();
 
   useEffect(() => {
     if (liveness.isSuccess) setLastLiveSuccess(new Date());
@@ -198,12 +202,13 @@ export function SystemPage() {
                 { label: "Browser origin", value: window.location.origin },
                 {
                   label: "Session access key set",
-                  value: isSessionApiKeySet() ? "Yes" : "No",
+                  value: sessionApiKeySet ? "Yes" : "No",
                 },
               ]}
             />
           </Card>
           <CodeBlock>{apiBaseUrl || "/api"}</CodeBlock>
+          <SessionApiKeyPanel />
         </div>
       </Section>
 

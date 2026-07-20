@@ -2,7 +2,6 @@ import { useMemo, useRef, useState } from "react";
 
 import { PageHeader } from "../components/layout/PageHeader";
 import { Section } from "../components/ui/Section";
-import { ApiAccessPanel } from "../features/documents/components/ApiAccessPanel";
 import { useDocumentList } from "../features/documents/hooks";
 import { useHealth } from "../features/health/useHealth";
 import { useRetrievalSearch } from "../features/retrieval/hooks";
@@ -24,7 +23,7 @@ function errorMessage(error: unknown) {
   if (error.status === 0 && error.detail === "timeout") return "Request timed out.";
   if (error.status === 0) return "Network request failed.";
   if (error.status === 401 || error.status === 403) {
-    return "API credentials were not accepted.";
+    return "API credentials were not accepted. Go to System Health -> Session API key, update the key, and retry.";
   }
   if (error.status === 422) {
     return error.detail && error.detail !== "[object Object]"
@@ -126,12 +125,6 @@ export function RetrievalPage() {
             selectedContentTypes={filteredContentTypes}
             onDocumentChange={(ids) => setDocumentIds(unique(ids))}
             onContentTypeChange={(types) => setContentTypes(unique(types))}
-          />
-          <ApiAccessPanel
-            onChange={() => {
-              health.refetch();
-              documentsQuery.refetch();
-            }}
           />
         </div>
         <div className="space-y-6">

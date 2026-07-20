@@ -9,7 +9,6 @@ import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { HealthStatusBadge } from "../features/health/HealthStatus";
 import type { HealthUiState } from "../features/health/state";
 import { useHealth } from "../features/health/useHealth";
-import { ApiAccessPanel } from "../features/documents/components/ApiAccessPanel";
 import { DocumentDetailDialog } from "../features/documents/components/DocumentDetailDialog";
 import { DocumentList } from "../features/documents/components/DocumentList";
 import { DocumentUploadPanel } from "../features/documents/components/DocumentUploadPanel";
@@ -124,7 +123,6 @@ export function DocumentsPage() {
               <Badge>Max {maxUploadLabel}</Badge>
             </div>
           </Card>
-          <ApiAccessPanel onChange={() => list.refetch()} />
           <DocumentUploadPanel
             disabled={writeDisabled}
             isUploading={upload.isPending}

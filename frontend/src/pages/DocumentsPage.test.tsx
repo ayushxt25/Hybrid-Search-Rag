@@ -167,7 +167,11 @@ describe("DocumentsPage", () => {
     );
     await user.click(screen.getByRole("button", { name: "Upload" }));
     expect(
-      (await screen.findAllByText(/API credentials were not accepted/i)).length,
+      (
+        await screen.findAllByText(
+          /Go to System Health -> Session API key, update the key, and retry/i,
+        )
+      ).length,
     ).toBeGreaterThan(0);
   });
 
@@ -309,13 +313,10 @@ describe("DocumentsPage", () => {
     expect(screen.getByRole("button", { name: "Upload" })).toBeDisabled();
   });
 
-  it("does not render API keys", async () => {
+  it("does not render a Documents-page API key form", async () => {
     vi.stubGlobal("fetch", mockFetch([]));
-    const user = userEvent.setup();
     renderPage();
-    await user.type(screen.getByLabelText("API key"), "sk-secret");
-    await user.click(screen.getByRole("button", { name: "Set" }));
-    expect(screen.queryByDisplayValue("sk-secret")).not.toBeInTheDocument();
-    expect(screen.queryByText("sk-secret")).not.toBeInTheDocument();
+    await screen.findByText("No indexed documents");
+    expect(screen.queryByLabelText("Session API key")).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -68,7 +68,7 @@ function mockFetch({ live = true, readyStatus = "ready" } = {}) {
 
 describe("SystemPage", () => {
   afterEach(() => {
-    clearSessionApiKey();
+    act(() => clearSessionApiKey());
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -143,11 +143,31 @@ describe("SystemPage", () => {
   });
 
   it("shows API key presence only as yes/no", async () => {
-    setSessionApiKey("sk-secret-system");
+    act(() => setSessionApiKey("sk-secret-system"));
     vi.stubGlobal("fetch", mockFetch());
     renderPage();
     expect(await screen.findByText("Yes")).toBeInTheDocument();
     expect(screen.queryByText("sk-secret-system")).not.toBeInTheDocument();
+  });
+
+  it("saves, updates, and clears the session API key without displaying it", async () => {
+    vi.stubGlobal("fetch", mockFetch());
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(await screen.findByText("No")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Session API key"), "  sk-secret-system  ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Yes")).toBeInTheDocument();
+    expect(screen.getByLabelText("Session API key")).toHaveValue("");
+    expect(screen.queryByDisplayValue("sk-secret-system")).not.toBeInTheDocument();
+    expect(screen.queryByText("sk-secret-system")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Update" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+    expect(await screen.findByText("No")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
   it("renders factual capabilities", async () => {

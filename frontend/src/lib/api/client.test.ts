@@ -1,8 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiClient, ApiError } from "./client";
+import {
+  ApiClient,
+  ApiError,
+  clearSessionApiKey,
+  hasSessionApiKey,
+  SESSION_API_KEY_STORAGE_KEY,
+  setSessionApiKey,
+  subscribeSessionApiKey,
+} from "./client";
 
 describe("ApiClient", () => {
+  afterEach(() => {
+    clearSessionApiKey();
+    window.sessionStorage.clear();
+    vi.restoreAllMocks();
+  });
+
   it("uses a relative API base URL by default", async () => {
     const fetcher = vi.fn().mockResolvedValue({
       ok: true,
@@ -70,5 +84,86 @@ describe("ApiClient", () => {
       detail: "timeout",
     });
     await expect(client.json("/slow")).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("stores trimmed session API keys in sessionStorage", () => {
+    setSessionApiKey("  production-key  ");
+
+    expect(window.sessionStorage.getItem(SESSION_API_KEY_STORAGE_KEY)).toBe(
+      "production-key",
+    );
+    expect(hasSessionApiKey()).toBe(true);
+  });
+
+  it("clears session API keys when the value is empty", () => {
+    setSessionApiKey("production-key");
+    setSessionApiKey("   ");
+
+    expect(window.sessionStorage.getItem(SESSION_API_KEY_STORAGE_KEY)).toBeNull();
+    expect(hasSessionApiKey()).toBe(false);
+  });
+
+  it("reads an existing sessionStorage key after initialization", async () => {
+    window.sessionStorage.setItem(SESSION_API_KEY_STORAGE_KEY, "stored-key");
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ documents: [] }),
+    });
+
+    await new ApiClient({ fetcher }).json("/api/v1/documents");
+
+    expect((fetcher.mock.calls[0][1].headers as Headers).get("X-API-Key")).toBe(
+      "stored-key",
+    );
+  });
+
+  it("attaches X-API-Key only when a key exists", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: new Headers({ "content-type": "application/json" }),
+      json: async () => ({ status: "alive" }),
+    });
+    const client = new ApiClient({ fetcher });
+
+    await client.json("/api/v1/health/live");
+    expect((fetcher.mock.calls[0][1].headers as Headers).has("X-API-Key")).toBe(
+      false,
+    );
+
+    setSessionApiKey("production-key");
+    await client.json("/api/v1/health/live");
+    expect((fetcher.mock.calls[1][1].headers as Headers).get("X-API-Key")).toBe(
+      "production-key",
+    );
+  });
+
+  it("notifies subscribers when the session API key changes", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeSessionApiKey(listener);
+
+    setSessionApiKey("production-key");
+    clearSessionApiKey();
+    unsubscribe();
+    setSessionApiKey("other-key");
+
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not crash when sessionStorage is unavailable", () => {
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+
+    expect(() => setSessionApiKey("production-key")).not.toThrow();
+    expect(hasSessionApiKey()).toBe(true);
+    expect(() => clearSessionApiKey()).not.toThrow();
+    expect(hasSessionApiKey()).toBe(false);
   });
 });

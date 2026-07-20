@@ -93,6 +93,7 @@ describe("app routing and shell", () => {
       await screen.findByRole("heading", { name: "System Health" }),
     ).toBeInTheDocument();
     expect(screen.queryByText(/sk-/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/api key/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("sk-secret")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Session API key")).toHaveValue("");
   });
 });

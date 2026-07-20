@@ -63,7 +63,7 @@ export function documentErrorMessage(error: unknown) {
   if (!(error instanceof ApiError)) return "The request could not be completed.";
   if (error.detail === "timeout") return "The backend request timed out.";
   if (error.status === 401 || error.status === 403) {
-    return "API credentials were not accepted. Update the session API key and retry.";
+    return "API credentials were not accepted. Go to System Health -> Session API key, update the key, and retry.";
   }
   if (error.status === 413) return "The selected file exceeds the backend limit.";
   if (error.status === 422)

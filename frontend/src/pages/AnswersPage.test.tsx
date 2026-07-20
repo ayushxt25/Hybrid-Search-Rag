@@ -219,6 +219,20 @@ describe("AnswersPage", () => {
     expect(
       await screen.findByText("The generation provider returned an invalid response."),
     ).toBeInTheDocument();
+
+    fetcher.mockImplementation((url: string) => {
+      if (url.endsWith("/api/v1/health/live")) return response({ status: "alive" });
+      if (url.endsWith("/api/v1/documents")) {
+        return response({ documents, next_cursor: null });
+      }
+      return response({ detail: "Valid API credentials are required." }, 401);
+    });
+    await user.click(screen.getByRole("button", { name: /Ask/i }));
+    expect(
+      await screen.findByText(
+        /Go to System Health -> Session API key, update the key, and retry/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("disables ask when backend is unavailable and reset clears answer", async () => {
